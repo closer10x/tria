@@ -41,28 +41,28 @@ export default function UndoSendBar({
     >
       <div className="flex items-center gap-3 px-4 py-3">
         <span className="relative flex h-6 w-6 shrink-0 items-center justify-center">
-          <span className="absolute inset-0 rounded-full border border-white/25" />
-          <span className="font-display text-[10px] font-semibold tabular-nums text-white">
+          <span className="absolute inset-0 rounded-full border border-(--color-paper)/25" />
+          <span className="font-display text-[10px] font-semibold tabular-nums text-(--color-paper)">
             {left}
           </span>
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-white">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-(--color-paper)">
           {label}
         </span>
         <button
           onClick={onSendNow}
-          className="shrink-0 rounded-md px-2 py-1 font-display text-[10px] font-medium uppercase tracking-[0.14em] text-white/50 transition-colors hover:text-white/80"
+          className="shrink-0 rounded-md px-2 py-1 font-display text-[10px] font-medium uppercase tracking-[0.14em] text-(--color-paper)/50 transition-colors hover:text-(--color-paper)/80"
         >
           Send now
         </button>
         <button
           onClick={onUndo}
-          className="shrink-0 rounded-md bg-white/10 px-2.5 py-1 font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-white/20"
+          className="shrink-0 rounded-md bg-(--color-paper)/10 px-2.5 py-1 font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-(--color-paper) transition-colors hover:bg-(--color-paper)/20"
         >
           Undo
         </button>
       </div>
-      <div className="h-0.5 w-full bg-white/10">
+      <div className="h-0.5 w-full bg-(--color-paper)/10">
         <div
           className="h-full bg-(--color-clay)"
           style={{

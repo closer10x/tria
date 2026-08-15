@@ -58,7 +58,7 @@ export default function AiPane({
               <div
                 className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
                   mine
-                    ? "rounded-br-md bg-(--color-ink) text-white"
+                    ? "rounded-br-md bg-(--color-ink) text-(--color-paper)"
                     : "rounded-bl-md border border-(--color-clay)/20 bg-white"
                 }`}
               >
@@ -198,7 +198,7 @@ export default function AiPane({
           />
           <button
             onClick={() => send()}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-(--color-ink) text-white shadow-sm transition-transform hover:scale-105 active:scale-95"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-(--color-ink) text-(--color-paper) shadow-sm transition-transform hover:scale-105 active:scale-95"
             title="Send"
           >
             <SparkIcon />

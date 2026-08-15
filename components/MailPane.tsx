@@ -575,7 +575,7 @@ export default function MailPane({
                       title={a}
                       className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.14em] transition-colors ${
                         current
-                          ? "border-(--color-ink) bg-(--color-ink) text-white"
+                          ? "border-(--color-ink) bg-(--color-ink) text-(--color-paper)"
                           : "hairline text-(--color-ink-soft) hover:border-(--color-ink-faint)"
                       }`}
                     >
@@ -789,7 +789,7 @@ export default function MailPane({
                 }}
                 className={`shrink-0 rounded-full border px-2.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.14em] transition-colors ${
                   activeAccount === "all"
-                    ? "border-(--color-ink) bg-(--color-ink) text-white"
+                    ? "border-(--color-ink) bg-(--color-ink) text-(--color-paper)"
                     : "hairline text-(--color-ink-soft) hover:border-(--color-ink-faint)"
                 }`}
               >
@@ -802,7 +802,7 @@ export default function MailPane({
                   title={a}
                   className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.14em] transition-colors ${
                     activeAccount === a
-                      ? "border-(--color-ink) bg-(--color-ink) text-white"
+                      ? "border-(--color-ink) bg-(--color-ink) text-(--color-paper)"
                       : "hairline text-(--color-ink-soft) hover:border-(--color-ink-faint)"
                   }`}
                 >
@@ -1364,7 +1364,7 @@ export default function MailPane({
             )}
             <button
               onClick={() => onSendToAi(selected)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-(--color-ink) px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-(--color-ink) px-3.5 py-2 text-[13px] font-semibold text-(--color-paper) shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98]"
             >
               <SparkIcon /> Take to AI
             </button>

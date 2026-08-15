@@ -9,15 +9,18 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 /**
- * Free models first: the strongest free model on the catalog, then
- * OpenRouter's auto-router across free capacity, then the cheapest capable
- * paid Claude as the safety net (free tiers rate-limit and models churn).
+ * Responsiveness first. Measured against this account: Haiku answers a short
+ * prompt in ~0.8s, while nemotron-free takes ~10s — and because a slow model
+ * still *succeeds*, the chain would stop there and every AI call in the app
+ * paid that 10s. At these prompt sizes Haiku is a fraction of a cent, so it
+ * leads and the free tiers sit behind it as the no-cost fallback if it is
+ * rate-limited or the account runs out of credit.
  * OPENROUTER_MODEL prepends an explicit choice to the front of the chain.
  */
 const MODEL_CHAIN = [
+  "anthropic/claude-haiku-4.5",
   "nvidia/nemotron-3-ultra-550b-a55b:free",
   "openrouter/free",
-  "anthropic/claude-haiku-4.5",
 ];
 
 function modelChain(): string[] {

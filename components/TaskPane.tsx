@@ -186,9 +186,13 @@ export default function TaskPane({
                           onClick={() => onCycleStatus(task.id)}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-start gap-2">
+                            {/* two lines, not one: the title is the only
+                                preview a task gets, so an AI-written one
+                                like "Send Camry photos and confirm the
+                                deductible" needs room to actually read */}
                             <p
-                              className={`min-w-0 flex-1 truncate font-display text-[15px] font-medium leading-snug ${
+                              className={`min-w-0 flex-1 line-clamp-2 font-display text-[15px] font-medium leading-snug ${
                                 task.status === "done" ? "line-through" : ""
                               }`}
                             >
