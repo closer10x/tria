@@ -302,6 +302,47 @@ export default function Home() {
     }
   };
 
+  /** Brain-dump results from the Smart Tasks voice bar → real tasks. */
+  const addBrainDumpTasks = (
+    drafts: {
+      title: string;
+      note: string;
+      priority: "high" | "medium" | "low";
+      due: string;
+      checklist: { label: string }[];
+    }[]
+  ) => {
+    if (drafts.length === 0) return;
+    const fresh: Task[] = drafts.map((d) => ({
+      id: nextId("t"),
+      title: d.title,
+      note: d.note || undefined,
+      priority: d.priority,
+      due: d.due || undefined,
+      status: "todo",
+      checklist: d.checklist.map((c) => ({
+        id: nextId("c"),
+        label: c.label,
+        done: false,
+      })),
+      createdAt: "Just now",
+      justCreated: true,
+    }));
+    setTasks((prev) => [...fresh, ...prev]);
+    setMobileTab("tasks");
+    showToast(
+      `✦ ${fresh.length} task${fresh.length === 1 ? "" : "s"} from your brain-dump`
+    );
+    const ids = new Set(fresh.map((t) => t.id));
+    setTimeout(
+      () =>
+        setTasks((prev) =>
+          prev.map((t) => (ids.has(t.id) ? { ...t, justCreated: false } : t))
+        ),
+      2500
+    );
+  };
+
   const dropEmailToTasks = (emailId: string) => {
     const email = emails.find((e) => e.id === emailId);
     if (!email) return;
@@ -1038,6 +1079,7 @@ export default function Home() {
           onDropEmail={dropEmailToTasks}
           onTogglePin={togglePinTask}
           onDelete={deleteTask}
+          onBrainDump={addBrainDumpTasks}
         />
         </div>
 

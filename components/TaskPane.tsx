@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Email, Task, TaskPriority, TaskStatus } from "@/lib/types";
-import type { ParsedTask } from "@/app/api/ai/parse/route";
+import type { ParsedTaskDraft } from "@/app/api/ai/parse-tasks/route";
 import BrainDump from "./BrainDump";
 import { ChatIcon, ClipIcon, PaneHeader, PinIcon, SparkIcon, TrashIcon } from "./ui";
 
@@ -72,6 +72,7 @@ export default function TaskPane({
   onDropEmail,
   onTogglePin,
   onDelete,
+  onBrainDump,
 }: {
   tasks: Task[];
   emails: Email[];
@@ -85,6 +86,8 @@ export default function TaskPane({
   onDropEmail: (emailId: string) => void;
   onTogglePin: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Optional until the page wires it — the dump bar hides when absent. */
+  onBrainDump?: (drafts: ParsedTaskDraft[]) => void;
 }) {
   const open = tasks.filter((t) => t.status !== "done").length;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -128,6 +131,7 @@ export default function TaskPane({
         title="Smart Tasks"
         count={emailOver ? "drop to create" : `${open} open`}
       />
+      {onBrainDump && <BrainDump onTasks={onBrainDump} />}
       <div className="nice-scroll min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-4">
         {statusOrder.map((status) => {
           const group = tasks.filter((t) => t.status === status);

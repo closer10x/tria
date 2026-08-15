@@ -146,3 +146,17 @@ body {
   to { transform: rotate(360deg); }
 }
 .spin-slow { animation: spin-slow 0.9s linear infinite; }
+
+/* Live-microphone pulsing halo — a red ring that expands and fades while listening. */
+@keyframes micHalo {
+  0%   { box-shadow: 0 0 0 0 rgba(229,72,77,0.55); }
+  70%  { box-shadow: 0 0 0 16px rgba(229,72,77,0); }
+  100% { box-shadow: 0 0 0 0 rgba(229,72,77,0); }
+}
+.mic-live { animation: micHalo 1.4s ease-out infinite; }
+@keyframes micBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); } }
+.mic-live-icon { animation: micBreath 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .mic-live { animation: none; box-shadow: 0 0 0 4px rgba(229,72,77,0.4); }
+  .mic-live-icon { animation: none; }
+}
