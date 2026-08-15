@@ -160,6 +160,21 @@ function signInErrorMessage(p: OAuthProvider, tok: TokenResponse): string {
   const raw = `${tok.error_description ?? ""} ${tok.error ?? ""}`;
   const label = providers[p].label;
 
+  if (p === "google") {
+    if (/redirect_uri_mismatch/i.test(raw))
+      return "This redirect URI isn't listed on the Google OAuth client. Add /api/oauth/google/callback under Authorised redirect URIs, exactly as the app is served.";
+    if (/invalid_client|unauthorized_client/i.test(raw))
+      return "Google rejected the client credentials — check GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET match the same OAuth client.";
+    if (/invalid_grant/i.test(raw))
+      return "Google rejected the authorisation code. It may have already been used or expired — try signing in again.";
+    if (/admin_policy_enforced/i.test(raw))
+      return "A Google Workspace admin policy blocks this app for your account. An admin has to allow it before mail access will work.";
+    if (/access_denied/i.test(raw))
+      return "Google denied the sign-in. While the app is unverified, only accounts added as Test users on its OAuth consent screen may grant Gmail access.";
+    if (/org_internal/i.test(raw))
+      return "This OAuth client is limited to a different organisation — set its user type so your account can use it.";
+  }
+
   if (/AADSTS7000218|client_assertion.*client_secret|invalid_client/i.test(raw))
     return `${label} rejected the sign-in because the app registration needs a client secret. Its redirect URI is registered as a "Web" platform, which requires one even with PKCE — create a secret in the app registration and set ${p === "microsoft" ? "MICROSOFT_OAUTH_CLIENT_SECRET" : "GOOGLE_OAUTH_CLIENT_SECRET"}, then redeploy.`;
   if (/AADSTS9002327/i.test(raw))
