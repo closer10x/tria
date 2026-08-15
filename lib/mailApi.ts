@@ -1,4 +1,5 @@
-import { Email, Folder, OutgoingAttachment, Provider } from "./types";
+import { isOffline, netFetch } from "./offline";
+import { Email, Folder, MailAction, OutgoingAttachment, Provider } from "./types";
 
 type ConnectPayload = {
   /** Full-credential connect. Omit pass to fall back to the saved login. */
@@ -17,7 +18,7 @@ export async function apiConnect(
   cfg: ConnectPayload
 ): Promise<{ ok: boolean; accounts?: string[]; error?: string }> {
   try {
-    const res = await fetch("/api/mail/connect", {
+    const res = await netFetch("/api/mail/connect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cfg),
@@ -26,8 +27,9 @@ export async function apiConnect(
   } catch {
     return {
       ok: false,
-      error:
-        "Couldn't reach the mail server API — live mail needs the Next.js app running (npm run dev), not the static preview.",
+      error: isOffline()
+        ? "You're offline — connect an account once you're back on a network."
+        : "Couldn't reach the mail server. Check your connection and try again.",
     };
   }
 }
@@ -35,7 +37,7 @@ export async function apiConnect(
 /** Accounts already connected in this session (cookie-backed). */
 export async function apiAccounts(): Promise<string[]> {
   try {
-    const res = await fetch("/api/mail/accounts");
+    const res = await netFetch("/api/mail/accounts");
     const data = (await res.json()) as { ok: boolean; accounts?: string[] };
     return data.accounts ?? [];
   } catch {
@@ -46,7 +48,7 @@ export async function apiAccounts(): Promise<string[]> {
 /** Disconnect one account, or all when omitted. Returns the remaining accounts. */
 export async function apiDisconnect(account?: string): Promise<string[]> {
   try {
-    const res = await fetch(
+    const res = await netFetch(
       `/api/mail/accounts${account ? `?account=${encodeURIComponent(account)}` : ""}`,
       { method: "DELETE" }
     );
@@ -62,7 +64,7 @@ export async function apiAsk(payload: {
   turns: { role: "user" | "assistant"; text: string }[];
   context: unknown;
 }): Promise<string> {
-  const res = await fetch("/api/ai", {
+  const res = await netFetch("/api/ai", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -96,7 +98,7 @@ export type SavedAccountsResult = {
 };
 
 export async function apiSavedAccounts(): Promise<SavedAccountsResult> {
-  const res = await fetch("/api/saved-accounts");
+  const res = await netFetch("/api/saved-accounts");
   const data = (await res.json()) as { ok: boolean } & Partial<SavedAccountsResult>;
   return {
     accounts: data.accounts ?? [],
@@ -114,7 +116,7 @@ export async function apiSavedAccountSave(payload: {
   password?: string;
   label?: string;
 }): Promise<SavedAccountsResult> {
-  const res = await fetch("/api/saved-accounts", {
+  const res = await netFetch("/api/saved-accounts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -128,7 +130,7 @@ export async function apiSavedAccountSave(payload: {
 }
 
 export async function apiSavedAccountDelete(id: string): Promise<SavedAccountsResult> {
-  const res = await fetch(`/api/saved-accounts?id=${encodeURIComponent(id)}`, {
+  const res = await netFetch(`/api/saved-accounts?id=${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
   const data = (await res.json()) as { ok: boolean } & Partial<SavedAccountsResult>;
@@ -145,7 +147,7 @@ export async function apiMessages(
   /** how many newer messages to skip — paging back through the mailbox */
   offset = 0
 ): Promise<Email[]> {
-  const res = await fetch(
+  const res = await netFetch(
     `/api/mail/messages?role=${role}&tz=${encodeURIComponent(tz)}&account=${encodeURIComponent(account)}&offset=${offset}`
   );
   const data = (await res.json()) as { ok: boolean; messages?: Email[]; error?: string };
@@ -158,7 +160,7 @@ export async function apiBody(
   uid: number,
   account?: string
 ): Promise<{ body: string[]; messageId?: string; references?: string[] }> {
-  const res = await fetch(
+  const res = await netFetch(
     `/api/mail/message?role=${role}&uid=${uid}${
       account ? `&account=${encodeURIComponent(account)}` : ""
     }`
@@ -177,18 +179,10 @@ export async function apiBody(
 export async function apiAction(
   role: Folder,
   uid: number,
-  action:
-    | "read"
-    | "unread"
-    | "star"
-    | "unstar"
-    | "archive"
-    | "trash"
-    | "inbox"
-    | "snooze",
+  action: MailAction,
   account?: string
 ): Promise<void> {
-  const res = await fetch("/api/mail/action", {
+  const res = await netFetch("/api/mail/action", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role, uid, action, account }),
@@ -210,7 +204,7 @@ export async function apiSmartTask(payload: {
   due: string;
   checklist: { label: string }[];
 }> {
-  const res = await fetch("/api/ai/task", {
+  const res = await netFetch("/api/ai/task", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -254,7 +248,7 @@ export async function apiSaveDraft(payload: {
   account?: string;
   replaceUid?: number;
 }): Promise<number | undefined> {
-  const res = await fetch("/api/mail/draft", {
+  const res = await netFetch("/api/mail/draft", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -273,7 +267,7 @@ export async function apiSend(payload: {
   account?: string;
   attachments?: OutgoingAttachment[];
 }): Promise<void> {
-  const res = await fetch("/api/mail/send", {
+  const res = await netFetch("/api/mail/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -294,7 +288,7 @@ export type Contact = {
 /** People you've emailed before, ranked for compose autocomplete. */
 export async function apiContacts(): Promise<Contact[]> {
   try {
-    const res = await fetch("/api/mail/contacts");
+    const res = await netFetch("/api/mail/contacts");
     const data = (await res.json()) as { ok: boolean; contacts?: Contact[] };
     return data.contacts ?? [];
   } catch {

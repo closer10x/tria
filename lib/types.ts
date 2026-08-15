@@ -47,7 +47,24 @@ export type Email = {
   tag?: string;
   taskId?: string; // linked smart task
   attachments?: FileRef[];
+  /** RFC message id, read with the body — a reply quotes it so clients thread. */
+  messageId?: string;
+  /** The thread this message is part of, carried into replies. */
+  references?: string[];
+  /** Written offline and waiting in the outbox rather than actually sent. */
+  queued?: boolean;
 };
+
+/** Every mailbox mutation the client can ask for. */
+export type MailAction =
+  | "read"
+  | "unread"
+  | "star"
+  | "unstar"
+  | "archive"
+  | "trash"
+  | "inbox"
+  | "snooze";
 
 export type Provider =
   | "gmail"

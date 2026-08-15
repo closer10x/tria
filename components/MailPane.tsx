@@ -251,7 +251,9 @@ export default function MailPane({
     to: string,
     subject: string,
     body: string,
-    fromAccount?: string
+    fromAccount?: string,
+    /** uid of the version being replaced, so the server drops the old copy */
+    replaceUid?: number
   ) => void;
   onRefresh: (folder: Folder) => void;
   refreshing: boolean;
@@ -524,7 +526,15 @@ export default function MailPane({
   const saveDraft = () => {
     const list = allRecipients();
     if (list.length === 0 && !subject.trim() && !body.trim()) return;
-    onSaveDraft(list.join(", "), subject.trim(), body.trim(), currentAccount());
+    // draftUid is set when this composer was opened from an existing draft;
+    // passing it replaces that copy instead of appending a second one
+    onSaveDraft(
+      list.join(", "),
+      subject.trim(),
+      body.trim(),
+      currentAccount(),
+      draftUid
+    );
     resetCompose();
     setFolder("drafts");
   };
@@ -1097,6 +1107,11 @@ export default function MailPane({
                     </p>
                     <div className="mt-1.5 flex items-center gap-2">
                       {email.tag && <Tag label={email.tag} />}
+                      {email.queued && (
+                        <span className="inline-flex items-center gap-1 font-display text-[9px] font-medium uppercase tracking-[0.18em] text-(--color-gold)">
+                          <ClockIcon className="h-2.5 w-2.5" /> Queued
+                        </span>
+                      )}
                       {email.replied && (
                         <span className="inline-flex items-center gap-1 font-display text-[9px] font-medium uppercase tracking-[0.18em] text-(--color-sage)">
                           <ReplyIcon className="h-2.5 w-2.5" /> Replied

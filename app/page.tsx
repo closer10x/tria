@@ -35,12 +35,23 @@ import {
   syncThreads,
 } from "@/lib/persist";
 import { clearMailCache, loadMailCache, saveMailCache } from "@/lib/mailCache";
+import { loadAppCache, saveAppCache } from "@/lib/appCache";
+import { confirmOnline, isOffline, subscribeOffline } from "@/lib/offline";
+import {
+  enqueue,
+  flushOutbox,
+  outboxSize,
+  QueuedSend,
+  type OutboxItem,
+} from "@/lib/outbox";
+import OfflineBanner from "@/components/OfflineBanner";
 import { mergeThread, subscribeThreads, ThreadsRealtime } from "@/lib/realtime";
 import {
   AiMessage,
   Attachment,
   Email,
   Folder,
+  MailAction,
   Message,
   OutgoingAttachment,
   Settings,
@@ -126,22 +137,63 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // true once Supabase state has hydrated — gates the save effects below
   const [synced, setSynced] = useState(false);
+  // true once the first load attempt has settled, successfully or not; the
+  // local snapshot may only be written after that, or an empty starting state
+  // would overwrite the good copy on disk
+  const [booted, setBooted] = useState(false);
+
+  const [offline, setOffline] = useState(false);
+  const [queued, setQueued] = useState(0);
+  const [syncingOutbox, setSyncingOutbox] = useState(false);
+
+  /**
+   * Pull authoritative state from Supabase. Returns whether it worked, so the
+   * caller can retry later — offline, the first attempt fails and `synced`
+   * stays false, which is what keeps the debounced writers from pushing an
+   * empty local state over the real data.
+   */
+  const hydrate = useCallback(async () => {
+    const state = await loadState();
+    if (!state) return false;
+    if (state.tasks) setTasks(state.tasks);
+    if (state.threads) setThreads(state.threads);
+    if (state.aiMessages) setAiMessages(state.aiMessages);
+    if (state.settings)
+      setSettings((s) => ({ ...s, ...state.settings, password: s.password }));
+    setSynced(true);
+    return true;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    loadState().then((state) => {
-      if (cancelled || !state) return;
-      if (state.tasks) setTasks(state.tasks);
-      if (state.threads) setThreads(state.threads);
-      if (state.aiMessages) setAiMessages(state.aiMessages);
-      if (state.settings)
-        setSettings((s) => ({ ...s, ...state.settings, password: s.password }));
-      setSynced(true);
+    // Paint the last known workspace first. Supabase replaces it when it
+    // answers; when it can't (offline, cold start on a plane) this is the
+    // difference between your tasks and threads being there and the app
+    // looking like it lost everything.
+    const cached = loadAppCache();
+    if (cached) {
+      setTasks((prev) => (prev.length === 0 ? cached.tasks : prev));
+      setThreads((prev) => (prev.length === 0 ? cached.threads : prev));
+      setAiMessages((prev) => (prev.length === 0 ? cached.aiMessages : prev));
+    }
+    hydrate().finally(() => {
+      if (!cancelled) setBooted(true);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hydrate]);
+
+  // keep the local snapshot current, so a reload with no network still opens
+  // on real content
+  useEffect(() => {
+    if (!booted) return;
+    const t = setTimeout(
+      () => saveAppCache({ tasks, threads, aiMessages }),
+      600
+    );
+    return () => clearTimeout(t);
+  }, [tasks, threads, aiMessages, booted]);
 
   useEffect(() => {
     if (!synced) return;
@@ -218,7 +270,15 @@ export default function Home() {
       // paint the last known mailbox immediately — the live fetch replaces it;
       // if the network is down, this is what "offline" shows
       const cached = loadMailCache();
-      if (cached) setEmails((prev) => (prev.length === 0 ? cached : prev));
+      if (cached) {
+        setEmails((prev) => (prev.length === 0 ? cached.emails : prev));
+        // Stay in live mode on the strength of the snapshot. Otherwise an
+        // offline reload drops back to demo mode and every mail action the
+        // user takes is applied locally and then thrown away, because
+        // liveAction has nothing to queue against.
+        if (cached.accounts.length)
+          setLiveAccounts((prev) => (prev.length === 0 ? cached.accounts : prev));
+      }
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       let accs = await apiAccounts();
       const saved = await apiSavedAccounts().catch(() => null);
@@ -234,6 +294,8 @@ export default function Home() {
           if (res.ok && res.accounts) accs = res.accounts;
         }
       }
+      // offline the server can't confirm anything — keep the cached accounts
+      // rather than tearing the session down
       if (accs.length === 0) return;
       setLiveAccounts(accs);
       apiMessages("inbox", tz)
@@ -316,9 +378,9 @@ export default function Home() {
   // keep the offline mail cache in step with whatever is on screen
   useEffect(() => {
     if (!live || emails.length === 0) return;
-    const t = setTimeout(() => saveMailCache(emails), 800);
+    const t = setTimeout(() => saveMailCache(emails, liveAccounts), 800);
     return () => clearTimeout(t);
-  }, [emails, live]);
+  }, [emails, live, liveAccounts]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -347,10 +409,24 @@ export default function Home() {
       apiBody(email.folder, email.uid, email.accountId)
         .then((r) =>
           setEmails((prev) =>
-            prev.map((e) => (e.id === id ? { ...e, body: r.body } : e))
+            prev.map((e) =>
+              e.id === id
+                ? {
+                    ...e,
+                    body: r.body,
+                    // keep the threading headers — a reply that omits them
+                    // starts a new conversation in the recipient's client
+                    messageId: r.messageId,
+                    references: r.references,
+                  }
+                : e
+            )
           )
         )
-        .catch((err) => showToast(String(err.message ?? err)));
+        // offline this is expected: the cached preview is all there is
+        .catch((err) => {
+          if (!isOffline()) showToast(String(err.message ?? err));
+        });
     }
   };
 
@@ -497,14 +573,37 @@ export default function Home() {
     });
   };
 
-  const liveAction = (
-    email: Email | undefined,
-    action: "read" | "unread" | "star" | "unstar" | "archive" | "trash" | "inbox" | "snooze"
-  ) => {
-    if (live && email?.uid)
-      apiAction(email.folder, email.uid, action, email.accountId).catch((err) =>
-        showToast(String(err.message ?? err))
-      );
+  /** Park work the server can't be told about yet; false if it wouldn't fit. */
+  const queueOffline = (item: OutboxItem): boolean => {
+    const ok = enqueue(item);
+    if (ok) setQueued(outboxSize());
+    return ok;
+  };
+
+  const liveAction = (email: Email | undefined, action: MailAction) => {
+    if (!live || !email?.uid) return;
+    const queueIt = () =>
+      queueOffline({
+        kind: "action",
+        id: nextId("q"),
+        at: Date.now(),
+        folder: email.folder,
+        uid: email.uid!,
+        account: email.accountId,
+        action,
+      });
+    // Offline the local state has already moved; queue the mailbox change so
+    // it isn't quietly lost when the tab closes.
+    if (isOffline()) {
+      queueIt();
+      return;
+    }
+    apiAction(email.folder, email.uid, action, email.accountId).catch((err) => {
+      // a dropped connection mid-action is the same situation as being
+      // offline; a real server rejection still deserves to be surfaced
+      if (isOffline()) queueIt();
+      else showToast(String(err.message ?? err));
+    });
   };
 
   const toggleStar = (id: string) => {
@@ -534,7 +633,10 @@ export default function Home() {
           ...msgs,
         ])
       )
-      .catch((err) => showToast(String(err.message ?? err)));
+      // the banner already says we're offline; a toast per folder tap is noise
+      .catch((err) => {
+        if (!isOffline()) showToast(String(err.message ?? err));
+      });
   };
 
   const connectAccount = async () => {
@@ -770,7 +872,9 @@ export default function Home() {
     to: string,
     subject: string,
     body: string,
-    fromAccount?: string
+    fromAccount?: string,
+    /** uid of the copy this replaces, when re-saving a reopened draft */
+    replaceUid?: number
   ) => {
     const account = fromAccount ?? liveAccounts[0];
     const draft: Email = {
@@ -785,15 +889,33 @@ export default function Home() {
       read: true,
       folder: "drafts",
     };
-    setEmails((prev) => [draft, ...prev]);
-    showToast("Draft saved");
-    if (live) {
-      try {
-        const uid = await apiSaveDraft({ to, subject, text: body, account });
-        if (uid) patchEmail(draft.id, { uid });
-      } catch (err) {
-        showToast(String(err instanceof Error ? err.message : err));
-      }
+    // a re-save supersedes the old local row too, or the pane shows both
+    setEmails((prev) => [
+      draft,
+      ...prev.filter((e) => !(replaceUid && e.folder === "drafts" && e.uid === replaceUid)),
+    ]);
+    if (!live) {
+      showToast("Draft saved");
+      return;
+    }
+    if (isOffline()) {
+      // IMAP APPEND has no local equivalent to replay against — the draft is
+      // safe in the local cache, so say what actually happened
+      showToast("Offline — draft kept on this device");
+      return;
+    }
+    try {
+      const uid = await apiSaveDraft({
+        to,
+        subject,
+        text: body,
+        account,
+        replaceUid,
+      });
+      if (uid) patchEmail(draft.id, { uid });
+      showToast("Draft saved");
+    } catch (err) {
+      showToast(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -813,7 +935,7 @@ export default function Home() {
         });
       }
     } catch (err) {
-      showToast(String(err instanceof Error ? err.message : err));
+      if (!isOffline()) showToast(String(err instanceof Error ? err.message : err));
     } finally {
       setLoadingMore(false);
     }
@@ -835,11 +957,71 @@ export default function Home() {
       const msgs = await apiMessages(folder, settings.timezone);
       setEmails((prev) => [...prev.filter((e) => e.folder !== folder), ...msgs]);
     } catch (err) {
-      showToast(String(err instanceof Error ? err.message : err));
+      if (!isOffline()) showToast(String(err instanceof Error ? err.message : err));
     } finally {
       setRefreshing(false);
     }
   };
+
+  /**
+   * Send everything that was done offline, oldest first, then pull fresh mail
+   * so the pane reflects what the server now holds.
+   */
+  const drainingRef = useRef(false);
+  const drainOutbox = useCallback(async () => {
+    // One replay at a time. Two overlapping runs would both read the same
+    // queue and send an in-flight item twice.
+    if (drainingRef.current || outboxSize() === 0) return;
+    drainingRef.current = true;
+    setSyncingOutbox(true);
+    try {
+      const result = await flushOutbox({
+        runAction: (item) =>
+          apiAction(item.folder, item.uid, item.action, item.account),
+        runSend: (item: QueuedSend) => apiSend(item.payload),
+      });
+      setQueued(outboxSize());
+      if (result.deliveredEmailIds.length) {
+        const delivered = new Set(result.deliveredEmailIds);
+        setEmails((prev) =>
+          prev.map((e) => (delivered.has(e.id) ? { ...e, queued: undefined } : e))
+        );
+      }
+      if (result.sent > 0)
+        showToast(
+          `Back online — ${result.sent} change${result.sent === 1 ? "" : "s"} sent`
+        );
+      if (result.failed > 0)
+        showToast("Some offline changes couldn't be sent — they're still queued");
+    } finally {
+      drainingRef.current = false;
+      setSyncingOutbox(false);
+    }
+  }, [showToast]);
+
+  // work left queued by a previous session goes out as soon as we load
+  useEffect(() => {
+    if (!isOffline()) drainOutbox();
+  }, [drainOutbox]);
+
+  // Connectivity: mirror the shared state into React, and on a confirmed
+  // reconnect catch up on everything that was deferred.
+  useEffect(() => {
+    setOffline(isOffline());
+    setQueued(outboxSize());
+    return subscribeOffline(async (nowOffline) => {
+      setOffline(nowOffline);
+      if (nowOffline) return;
+      // the browser's online event fires before requests actually succeed
+      if (!(await confirmOnline())) return;
+      await drainOutbox();
+      // a failed first load left the workspace unsynced — try again now
+      if (!synced) await hydrate();
+      if (liveAccounts.length > 0) refreshFolder(mailFolder);
+    });
+    // refreshFolder/mailFolder are read at event time, not subscribe time
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drainOutbox, hydrate, synced, liveAccounts.length, mailFolder]);
 
   /** Hold an outgoing message briefly so it can be pulled back. */
   const holdSend = (label: string, draft: RestoreDraft, run: () => void) => {
@@ -879,35 +1061,102 @@ export default function Home() {
     );
   };
 
-  const dispatchReply = (email: Email, text: string) => {
-    const withSig = settings.signature
-      ? `${text}\n\n${settings.signature}`
-      : text;
-    // reply from the account the email arrived in
-    const fromAccount = email.accountId ?? liveAccounts[0] ?? settings.email;
-    if (live) {
-      apiSend({
-        to: email.from.email,
-        subject: `Re: ${email.subject}`,
-        text: withSig,
-        account: fromAccount,
-      }).catch((err) => showToast(String(err.message ?? err)));
+  /**
+   * The one send path. Replies and new messages differ only in what they
+   * address and quote, but they used to be two copies of this — which is how
+   * the reply path ended up without attachment support and the compose path
+   * without threading headers.
+   */
+  const deliver = (opts: {
+    to: string;
+    subject: string;
+    /** The user's text, before the signature is appended. */
+    body: string;
+    account: string;
+    /** Set when this is a reply, so the recipient's client threads it. */
+    inReplyTo?: string;
+    references?: string[];
+    attachments?: OutgoingAttachment[];
+    /** Shown once the message is on its way. */
+    sentLabel: string;
+    /** Shown instead when it goes to the outbox. */
+    queuedLabel: string;
+  }) => {
+    const text = settings.signature
+      ? `${opts.body}\n\n${settings.signature}`
+      : opts.body;
+    const localId = nextId("e");
+    const payload = {
+      to: opts.to,
+      subject: opts.subject,
+      text,
+      inReplyTo: opts.inReplyTo,
+      references: opts.references,
+      account: opts.account,
+      attachments: opts.attachments,
+    };
+
+    // Offline: hold the message rather than claim it left. The copy in Sent
+    // is marked queued so the pane doesn't present it as delivered.
+    const queuedNow = live && isOffline();
+    if (queuedNow) {
+      const stored = queueOffline({
+        kind: "send",
+        id: nextId("q"),
+        at: Date.now(),
+        emailId: localId,
+        payload,
+      });
+      if (!stored) {
+        // too big for the outbox — say so rather than drop it silently
+        showToast(
+          "Offline, and this message is too large to hold — try again once you're back online"
+        );
+        return;
+      }
+      showToast(opts.queuedLabel);
+    } else {
+      if (live)
+        apiSend(payload).catch((err) => showToast(String(err.message ?? err)));
+      showToast(opts.sentLabel);
     }
-    patchEmail(email.id, { replied: true });
+
     const sent: Email = {
-      id: nextId("e"),
-      accountId: email.accountId,
-      from: meAsSender(fromAccount),
-      to: email.from.email,
-      subject: `Re: ${email.subject}`,
-      preview: text.slice(0, 90),
-      body: text.split("\n").filter(Boolean),
+      id: localId,
+      accountId: live ? opts.account : undefined,
+      from: meAsSender(opts.account),
+      to: opts.to,
+      subject: opts.subject || "(no subject)",
+      preview: opts.body.slice(0, 90),
+      body: opts.body.split("\n").filter(Boolean),
       time: nowTime(),
       read: true,
       folder: "sent",
+      queued: queuedNow || undefined,
+      attachments: opts.attachments?.map((a) => ({
+        name: a.filename,
+        size: `${Math.max(1, Math.round(a.size / 1024))} KB`,
+      })),
     };
     setEmails((prev) => [sent, ...prev]);
-    showToast(`Reply sent to ${email.from.name}`);
+  };
+
+  const dispatchReply = (email: Email, text: string) => {
+    // reply from the account the email arrived in
+    const fromAccount = email.accountId ?? liveAccounts[0] ?? settings.email;
+    patchEmail(email.id, { replied: true });
+    deliver({
+      to: email.from.email,
+      subject: `Re: ${email.subject}`,
+      body: text,
+      account: fromAccount,
+      inReplyTo: email.messageId,
+      references: [...(email.references ?? []), email.messageId].filter(
+        (r): r is string => Boolean(r)
+      ),
+      sentLabel: `Reply sent to ${email.from.name}`,
+      queuedLabel: `Offline — your reply to ${email.from.name} will send when you're back`,
+    });
   };
 
   const sendNewEmail = (
@@ -930,35 +1179,16 @@ export default function Home() {
     body: string,
     fromAccount?: string,
     attachments?: OutgoingAttachment[]
-  ) => {
-    const withSig = settings.signature
-      ? `${body}\n\n${settings.signature}`
-      : body;
-    const account = fromAccount ?? liveAccounts[0] ?? settings.email;
-    if (live) {
-      apiSend({ to, subject, text: withSig, account, attachments }).catch((err) =>
-        showToast(String(err.message ?? err))
-      );
-    }
-    const sent: Email = {
-      id: nextId("e"),
-      accountId: live ? account : undefined,
-      from: meAsSender(account),
+  ) =>
+    deliver({
       to,
-      subject: subject || "(no subject)",
-      preview: body.slice(0, 90),
-      body: body.split("\n").filter(Boolean),
-      time: nowTime(),
-      read: true,
-      folder: "sent",
-      attachments: attachments?.map((a) => ({
-        name: a.filename,
-        size: `${Math.max(1, Math.round(a.size / 1024))} KB`,
-      })),
-    };
-    setEmails((prev) => [sent, ...prev]);
-    showToast(`Sent to ${to}`);
-  };
+      subject,
+      body,
+      account: fromAccount ?? liveAccounts[0] ?? settings.email,
+      attachments,
+      sentLabel: `Sent to ${to}`,
+      queuedLabel: `Offline — your message to ${to} will send when you're back`,
+    });
 
   const shareEmailToThread = (email: Email) => {
     setPendingAttachment({ type: "email", refId: email.id });
@@ -1206,6 +1436,12 @@ export default function Home() {
           </button>
         </div>
       </header>
+
+      <OfflineBanner
+        offline={offline}
+        queued={queued}
+        syncing={syncingOutbox}
+      />
 
       {/* Three panes */}
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 p-2.5 pt-2 lg:grid lg:grid-cols-3 lg:gap-4 lg:p-4 lg:pt-2">
