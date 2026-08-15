@@ -8,8 +8,24 @@ import Anthropic from "@anthropic-ai/sdk";
  */
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-// cheapest capable Claude first; set OPENROUTER_MODEL to trade cost for smarts
-const DEFAULT_OPENROUTER_MODEL = "anthropic/claude-haiku-4.5";
+/**
+ * Free models first: the strongest free model on the catalog, then
+ * OpenRouter's auto-router across free capacity, then the cheapest capable
+ * paid Claude as the safety net (free tiers rate-limit and models churn).
+ * OPENROUTER_MODEL prepends an explicit choice to the front of the chain.
+ */
+const MODEL_CHAIN = [
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "openrouter/free",
+  "anthropic/claude-haiku-4.5",
+];
+
+function modelChain(): string[] {
+  const override = process.env.OPENROUTER_MODEL;
+  return override
+    ? [override, ...MODEL_CHAIN.filter((m) => m !== override)]
+    : [...MODEL_CHAIN];
+}
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -66,8 +82,20 @@ function stripFences(text: string): string {
   return m ? m[1] : text.trim();
 }
 
-async function chatOpenRouter(req: LlmRequest): Promise<string> {
-  const model = process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL;
+function orFetch(payload: Record<string, unknown>): Promise<Response> {
+  return fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://tria-rho.vercel.app",
+      "X-Title": "Tria",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function attemptOpenRouter(model: string, req: LlmRequest): Promise<string> {
   const system = req.schema
     ? `${req.system}\n\nRespond with ONLY a JSON document matching this JSON Schema — no prose, no code fences:\n${JSON.stringify(req.schema)}`
     : req.system;
@@ -89,31 +117,13 @@ async function chatOpenRouter(req: LlmRequest): Promise<string> {
         }
       : {}),
   };
-  let res = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://tria-rho.vercel.app",
-      "X-Title": "Tria",
-    },
-    body: JSON.stringify(body),
-  });
+  let res = await orFetch(body);
   // some models reject response_format outright — retry on prompt alone
   if (!res.ok && req.schema && res.status >= 400 && res.status < 500) {
     const errText = await res.text().catch(() => "");
     if (/response_format|json_schema|structured/i.test(errText)) {
       const { response_format: _rf, ...withoutFormat } = body as Record<string, unknown>;
-      res = await fetch(OPENROUTER_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://tria-rho.vercel.app",
-          "X-Title": "Tria",
-        },
-        body: JSON.stringify(withoutFormat),
-      });
+      res = await orFetch(withoutFormat);
     } else {
       throw Object.assign(new Error(openRouterError(res.status, errText)), {
         status: res.status,
@@ -133,6 +143,25 @@ async function chatOpenRouter(req: LlmRequest): Promise<string> {
   if (choice?.finish_reason === "content_filter") throw new LlmRefusal();
   const text = choice?.message?.content?.trim() ?? "";
   return req.schema ? stripFences(text) : text;
+}
+
+/** Statuses worth trying the next model in the chain for. */
+const FALLTHROUGH_STATUSES = new Set([402, 404, 408, 429, 500, 502, 503, 504]);
+
+async function chatOpenRouter(req: LlmRequest): Promise<string> {
+  let lastErr: unknown;
+  for (const model of modelChain()) {
+    try {
+      return await attemptOpenRouter(model, req);
+    } catch (e) {
+      if (e instanceof LlmRefusal) throw e;
+      const status = (e as { status?: number }).status;
+      // a bad key (401) fails everywhere — don't burn the chain on it
+      if (status && !FALLTHROUGH_STATUSES.has(status)) throw e;
+      lastErr = e;
+    }
+  }
+  throw lastErr;
 }
 
 function openRouterError(status: number, detail: string): string {
