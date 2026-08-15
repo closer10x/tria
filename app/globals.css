@@ -287,3 +287,28 @@ html[data-theme="dark"] .glass {
 .email-body h1, .email-body h2, .email-body h3 { font-size: 1.05em; font-weight: 600; margin: 0.6em 0 0.3em; }
 .email-body ul, .email-body ol { padding-left: 1.25em; margin: 0.5em 0; }
 .email-body font { color: inherit; }
+
+/* The reader never scrolls sideways: every descendant is clamped to the pane
+   width — the sender's fixed-width tables, images, long unbroken words in
+   subjects and bodies all wrap or shrink instead of pushing content off-screen. */
+.reader {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+.reader * {
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box;
+}
+.reader .email-body table {
+  width: 100% !important;
+  table-layout: fixed;
+}
+.reader .email-body td,
+.reader .email-body th {
+  width: auto !important;
+}
+.reader .email-body img {
+  height: auto !important;
+}

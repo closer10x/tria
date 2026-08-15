@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Email, Folder, OutgoingAttachment } from "@/lib/types";
-import { apiContacts, Contact } from "@/lib/mailApi";
+import { apiContacts, apiSearch, Contact } from "@/lib/mailApi";
 import MailDrawer from "./MailDrawer";
 import {
   ArchiveIcon,
@@ -230,7 +230,7 @@ export default function MailPane({
   /** email → the name set in Settings; falls back to the address */
   accountLabels?: Record<string, string>;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, email?: Email) => void;
   onBack: () => void;
   onMakeTask: (email: Email) => void;
   onShareToThread: (email: Email) => void;
@@ -420,6 +420,44 @@ export default function MailPane({
   const activeAccount =
     account !== "all" && !accounts.includes(account) ? "all" : account;
   const multiAccount = accounts.length > 1;
+  // Server search: the whole mailbox, every folder, any age. Kicks in after a
+  // short pause in typing; the instant local match shows meanwhile.
+  const [serverResults, setServerResults] = useState<Email[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  useEffect(() => {
+    const term = query.trim();
+    if (term.length < 2 || accounts.length === 0) {
+      setServerResults(null);
+      setSearching(false);
+      setSearchError(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(async () => {
+      setSearching(true);
+      setSearchError(null);
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const res = await apiSearch(term, tz, {
+          account: activeAccount,
+          signal: ctrl.signal,
+        });
+        setServerResults(res);
+      } catch (e) {
+        if ((e as Error).name !== "AbortError")
+          setSearchError(e instanceof Error ? e.message : "Search failed");
+      } finally {
+        if (!ctrl.signal.aborted) setSearching(false);
+      }
+    }, 450);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, activeAccount, accounts.length]);
+
   const byAccount = (e: Email) =>
     activeAccount === "all" || !e.accountId || e.accountId === activeAccount;
 
@@ -443,12 +481,16 @@ export default function MailPane({
   // merged in so a literal subject search never comes up empty. The desktop
   // AI toggle only controls whether the understood-filters chips are shown.
   const smart = q ? aiSearch(query, inFolder) : null;
-  const filtered = (() => {
+  const localFiltered = (() => {
     if (!q) return inFolder;
     if (!smart || smart.chips.length === 0) return plainMatches;
     const seen = new Set(smart.results.map((e) => e.id));
     return [...smart.results, ...plainMatches.filter((e) => !seen.has(e.id))];
   })();
+  // Once the server answers, its results win: they span every folder and the
+  // full mailbox history. Until then (or offline) the local match is shown.
+  const filtered = q && serverResults ? serverResults : localFiltered;
+  const searchingAll = Boolean(q && serverResults);
   const aiResult = aiMode && smart && smart.chips.length ? smart : null;
 
   const selecting = selectedIds.size > 0;
@@ -1193,6 +1235,30 @@ export default function MailPane({
               </div>
             )}
           </div>
+          {q && (
+            <div className="flex items-center gap-2 px-5 pb-1 pt-[3.25rem] text-[11px] text-(--color-ink-faint) lg:pt-1">
+              {searching ? (
+                <>
+                  <span className="h-3 w-3 shrink-0 animate-spin rounded-full border border-(--color-ink-faint)/40 border-t-(--color-clay)" />
+                  Searching all folders…
+                </>
+              ) : searchError ? (
+                <span className="text-red-500">{searchError}</span>
+              ) : searchingAll ? (
+                <>
+                  {filtered.length} result{filtered.length === 1 ? "" : "s"} across all folders
+                </>
+              ) : (
+                <>Showing what's loaded — full search in a moment…</>
+              )}
+              <button
+                onClick={() => setQuery("")}
+                className="ml-auto shrink-0 font-semibold text-(--color-ink-soft) hover:text-(--color-ink)"
+              >
+                Clear
+              </button>
+            </div>
+          )}
           <div
             onScroll={(e) => {
               if (!onLoadMore || loadingMore || noMoreMail) return;
@@ -1202,7 +1268,7 @@ export default function MailPane({
                 onLoadMore(folder);
             }}
             className={`nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pb-3 lg:pt-0 ${
-              selecting ? "" : "pt-[3.25rem]"
+              selecting || q ? "" : "pt-[3.25rem]"
             }`}
           >
             {filtered.map((email) => (
@@ -1220,7 +1286,9 @@ export default function MailPane({
                     if (email.accountId) setFromAccount(email.accountId);
                     return;
                   }
-                  onSelect(email.id);
+                  // a server search result may live in another folder and
+                  // not be in page state yet — hand it over to be adopted
+                  onSelect(email.id, searchingAll ? email : undefined);
                 }}
                 draggable
                 onDragStart={(e) => {
@@ -1325,6 +1393,11 @@ export default function MailPane({
                       {email.preview}
                     </p>
                     <div className="mt-1.5 flex items-center gap-2">
+                      {searchingAll && email.folder !== folder && (
+                        <span className="rounded-md bg-(--color-paper) px-1.5 py-0.5 font-display text-[9px] font-medium uppercase tracking-[0.14em] text-(--color-ink-faint)">
+                          {folders.find((f) => f.key === email.folder)?.label ?? email.folder}
+                        </span>
+                      )}
                       {email.tag && <Tag label={email.tag} />}
                       {email.queued && (
                         <span className="inline-flex items-center gap-1 font-display text-[9px] font-medium uppercase tracking-[0.18em] text-(--color-gold)">
@@ -1427,7 +1500,11 @@ export default function MailPane({
             )}
             {filtered.length === 0 && (
               <div className="pt-16 text-center text-sm text-(--color-ink-faint)">
-                Nothing in {folders.find((f) => f.key === folder)?.label}.
+                {q
+                  ? searching
+                    ? "Searching your whole mailbox…"
+                    : `No mail matches “${query.trim()}”.`
+                  : `Nothing in ${folders.find((f) => f.key === folder)?.label}.`}
               </div>
             )}
           </div>
@@ -1442,7 +1519,7 @@ export default function MailPane({
         </>
       ) : (
         /* ---------- DETAIL ---------- */
-        <div className="fade-slide nice-scroll min-h-0 flex-1 overflow-y-auto px-5 pt-3 pb-5">
+        <div className="fade-slide nice-scroll reader min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 pt-3 pb-5">
           <div className="mb-3 flex items-center justify-between">
             <button
               onClick={() => {
@@ -1557,7 +1634,7 @@ export default function MailPane({
               )}
             </div>
           </div>
-          <h3 className="font-display mb-4 text-2xl font-light leading-snug">
+          <h3 className="font-display mb-4 text-2xl font-light leading-snug break-words [overflow-wrap:anywhere]">
             {selected.subject}
           </h3>
           {selected.html ? (

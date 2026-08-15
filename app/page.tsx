@@ -402,9 +402,13 @@ export default function Home() {
     window.history.replaceState({}, "", window.location.pathname);
   }, [showToast]);
 
-  const openEmail = (id: string) => {
+  const openEmail = (id: string, adopt?: Email) => {
+    // a search result from another folder isn't in state yet — take it in
+    // so the reader, actions and body fetch all work on it
+    if (adopt && !emails.some((e) => e.id === id))
+      setEmails((prev) => (prev.some((e) => e.id === id) ? prev : [...prev, adopt]));
     setSelectedEmailId(id);
-    const email = emails.find((e) => e.id === id);
+    const email = emails.find((e) => e.id === id) ?? adopt;
     setEmails((prev) =>
       prev.map((e) => (e.id === id ? { ...e, read: true } : e))
     );

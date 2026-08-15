@@ -28,6 +28,8 @@ const ALLOWED_ATTRS: Record<string, Set<string>> = {
   td: new Set(["colspan", "rowspan", "align", "valign", "bgcolor"]),
   th: new Set(["colspan", "rowspan", "align", "valign", "bgcolor"]),
   table: new Set(["cellpadding", "cellspacing", "align", "bgcolor"]),
+  // (no `width` on table/td/th — a pinned 600px column is exactly what shoves
+  //  a phone reader sideways; the reader CSS makes tables fluid instead)
   font: new Set(["color", "face", "size"]),
 };
 /**
@@ -44,6 +46,7 @@ const SAFE_STYLE_PROPS = new Set([
   "border-top", "border-right", "border-bottom", "border-left",
   "border-radius", "border-collapse", "border-spacing", "display",
   "white-space", "word-break", "opacity", "max-width",
+  // deliberately absent: width, min-width, height, position, float, transform
 ]);
 function safeStyle(style: string): string {
   const kept: string[] = [];

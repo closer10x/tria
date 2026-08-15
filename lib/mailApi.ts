@@ -343,3 +343,18 @@ export async function apiScheduledCancel(id: string): Promise<boolean> {
   if (!data.ok) throw new Error(data.error ?? "Couldn't cancel");
   return Boolean(data.cancelled);
 }
+
+/** Server-side search across every folder of every connected account. */
+export async function apiSearch(
+  q: string,
+  tz: string,
+  opts: { account?: string; role?: Folder; signal?: AbortSignal } = {}
+): Promise<Email[]> {
+  const params = new URLSearchParams({ q, tz });
+  if (opts.account && opts.account !== "all") params.set("account", opts.account);
+  if (opts.role) params.set("role", opts.role);
+  const res = await fetch(`/api/mail/search?${params}`, { signal: opts.signal });
+  const data = (await res.json()) as { ok: boolean; messages?: Email[]; error?: string };
+  if (!data.ok || !data.messages) throw new Error(data.error ?? "Search failed");
+  return data.messages;
+}
