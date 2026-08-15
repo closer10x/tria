@@ -27,6 +27,7 @@ import {
   SavedAccountInfo,
 } from "@/lib/mailApi";
 import {
+  deleteThread,
   loadState,
   syncAiMessages,
   syncSettings,
@@ -1108,6 +1109,24 @@ export default function Home() {
     setPendingAttachment(null);
   };
 
+  const setThreadArchived = (id: string, archived: boolean) => {
+    setThreads((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, archived } : t))
+    );
+    if (archived && activeThreadId === id) setActiveThreadId(null);
+    showToast(archived ? "Thread archived" : "Thread restored");
+  };
+
+  const removeThread = (id: string) => {
+    const name = threads.find((t) => t.id === id)?.name ?? "Thread";
+    setThreads((prev) => prev.filter((t) => t.id !== id));
+    if (activeThreadId === id) setActiveThreadId(null);
+    lastThreadSyncRef.current.delete(id);
+    // other clients drop it via the realtime DELETE event
+    deleteThread(id).catch(() => showToast("Delete didn't reach the server"));
+    showToast(`🗑 ${name} deleted`);
+  };
+
   const createThread = (name: string) => {
     const author = chatName || settings.name || "Someone";
     const emojis = ["💬", "🚀", "📋", "🌊", "🏠", "⚡", "🧭", "🎯"];
@@ -1284,6 +1303,9 @@ export default function Home() {
                 onTyping={broadcastTyping}
                 onChangeSelfName={setChatName}
                 onCreateThread={createThread}
+                onArchiveThread={(id) => setThreadArchived(id, true)}
+                onRestoreThread={(id) => setThreadArchived(id, false)}
+                onDeleteThread={removeThread}
               />
             ) : (
               <AiPane

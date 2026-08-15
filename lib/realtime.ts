@@ -14,6 +14,7 @@ type ThreadRow = {
   members: string[] | null;
   emoji: string | null;
   messages: Message[] | null;
+  archived: boolean | null;
 };
 
 const rowToThread = (r: ThreadRow): Thread => ({
@@ -22,6 +23,7 @@ const rowToThread = (r: ThreadRow): Thread => ({
   members: r.members ?? [],
   emoji: r.emoji ?? "",
   messages: r.messages ?? [],
+  archived: r.archived ?? false,
 });
 
 /**

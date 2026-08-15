@@ -118,6 +118,8 @@ export type Thread = {
   members: string[];
   emoji: string;
   messages: Message[];
+  /** Archived threads collapse out of the main list but keep their history. */
+  archived?: boolean;
 };
 
 export type AiMessage = {

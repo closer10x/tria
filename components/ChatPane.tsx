@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Attachment, Email, Task, Thread } from "@/lib/types";
 import AttachmentCard from "./AttachmentCard";
-import { ChatIcon, ClipIcon } from "./ui";
+import { ArchiveIcon, ChatIcon, ClipIcon, TrashIcon } from "./ui";
 
 export function filePickerHandler(
   onSetPending: (a: Attachment) => void,
@@ -44,6 +44,9 @@ export default function ChatPane({
   onTyping,
   onChangeSelfName,
   onCreateThread,
+  onArchiveThread,
+  onRestoreThread,
+  onDeleteThread,
 }: {
   threads: Thread[];
   emails: Email[];
@@ -63,6 +66,10 @@ export default function ChatPane({
   onTyping?: () => void;
   onChangeSelfName: (name: string) => void;
   onCreateThread: (name: string) => void;
+  onArchiveThread: (id: string) => void;
+  onRestoreThread: (id: string) => void;
+  /** Permanent — the row arms a confirm before calling this. */
+  onDeleteThread: (id: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
@@ -70,8 +77,12 @@ export default function ChatPane({
   const [nameDraft, setNameDraft] = useState("");
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [newThreadName, setNewThreadName] = useState("");
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const active = threads.find((t) => t.id === activeThreadId) ?? null;
+  const liveThreads = threads.filter((t) => !t.archived);
+  const archivedThreads = threads.filter((t) => t.archived);
   const online = new Set(onlineUsers);
   // legacy messages predate identities and were always the workspace owner's
   const isMine = (author: string) => author === selfName || author === "me";
@@ -90,8 +101,15 @@ export default function ChatPane({
     setAttachOpen(false);
   };
 
+  const startThread = () => {
+    if (!newThreadName.trim()) return;
+    onCreateThread(newThreadName.trim());
+    setNewThreadName("");
+    setNewThreadOpen(false);
+  };
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       {!active ? (
         <div className="nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pt-1 pb-3">
           {/* who you are + who's here */}
@@ -138,40 +156,8 @@ export default function ChatPane({
             <span className="ml-auto shrink-0 text-[10px] text-(--color-ink-faint)">
               {onlineUsers.length} online
             </span>
-            <button
-              onClick={() => setNewThreadOpen((v) => !v)}
-              className="shrink-0 rounded-lg bg-(--color-clay) px-2.5 py-1 text-[11px] font-semibold text-white transition-transform hover:scale-[1.03]"
-            >
-              + New
-            </button>
           </div>
-          {newThreadOpen && (
-            <form
-              className="rise-in flex items-center gap-1.5 py-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!newThreadName.trim()) return;
-                onCreateThread(newThreadName.trim());
-                setNewThreadName("");
-                setNewThreadOpen(false);
-              }}
-            >
-              <input
-                autoFocus
-                value={newThreadName}
-                onChange={(e) => setNewThreadName(e.target.value)}
-                placeholder="Thread name — e.g. Launch crew"
-                className="min-w-0 flex-1 rounded-lg border hairline bg-white px-2.5 py-1.5 text-xs outline-none focus:border-(--color-clay)/50"
-              />
-              <button
-                type="submit"
-                className="shrink-0 rounded-lg bg-(--color-clay) px-2.5 py-1.5 text-[11px] font-semibold text-white"
-              >
-                Create
-              </button>
-            </form>
-          )}
-          {threads.length === 0 && (
+          {liveThreads.length === 0 && archivedThreads.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
               <ChatIcon className="h-5 w-5 text-(--color-ink-faint)" />
               <p className="text-xs text-(--color-ink-faint)">
@@ -182,13 +168,16 @@ export default function ChatPane({
               </p>
             </div>
           )}
-          {threads.map((thread) => {
+          {liveThreads.map((thread) => {
             const last = thread.messages[thread.messages.length - 1];
             return (
-              <button
+              <div
                 key={thread.id}
                 onClick={() => onOpenThread(thread.id)}
-                className="w-full py-3.5 text-left transition-colors hover:bg-(--color-paper)/60"
+                onMouseLeave={() =>
+                  confirmDeleteId === thread.id && setConfirmDeleteId(null)
+                }
+                className="group relative w-full cursor-pointer py-3.5 text-left transition-colors hover:bg-(--color-paper)/60"
               >
                 <div className="flex items-center gap-3">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--color-paper) text-base">
@@ -199,7 +188,7 @@ export default function ChatPane({
                       <span className="truncate text-sm font-semibold">
                         {thread.name}
                       </span>
-                      <span className="shrink-0 text-[11px] text-(--color-ink-faint)">
+                      <span className="shrink-0 text-[11px] text-(--color-ink-faint) transition-opacity group-hover:opacity-0">
                         {last?.time}
                       </span>
                     </div>
@@ -212,9 +201,91 @@ export default function ChatPane({
                     </p>
                   </div>
                 </div>
-              </button>
+                {/* hover quick actions — same pattern as the mail rows */}
+                <div className="absolute right-0 top-3 flex items-center gap-0.5 rounded-lg bg-white/95 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                  <button
+                    title="Archive thread"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onArchiveThread(thread.id);
+                    }}
+                    className="rounded-md p-1.5 text-(--color-ink-faint) transition-colors hover:bg-(--color-clay-soft) hover:text-(--color-clay)"
+                  >
+                    <ArchiveIcon className="h-3.5 w-3.5" />
+                  </button>
+                  {confirmDeleteId === thread.id ? (
+                    <button
+                      title="Click again to permanently delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmDeleteId(null);
+                        onDeleteThread(thread.id);
+                      }}
+                      className="rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-600"
+                    >
+                      Sure?
+                    </button>
+                  ) : (
+                    <button
+                      title="Delete thread"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmDeleteId(thread.id);
+                      }}
+                      className="rounded-md p-1.5 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
+                    >
+                      <TrashIcon className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
             );
           })}
+          {archivedThreads.length > 0 && (
+            <div className="pt-2">
+              <button
+                onClick={() => setArchivedOpen((v) => !v)}
+                className="w-full py-2 text-left font-display text-[10px] font-medium uppercase tracking-[0.18em] text-(--color-ink-faint) transition-colors hover:text-(--color-ink-soft)"
+              >
+                {archivedOpen ? "▾" : "▸"} Archived · {archivedThreads.length}
+              </button>
+              {archivedOpen &&
+                archivedThreads.map((thread) => (
+                  <div
+                    key={thread.id}
+                    className="flex items-center gap-3 py-2 opacity-70"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-(--color-paper) text-sm">
+                      {thread.emoji}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                      {thread.name}
+                    </span>
+                    <button
+                      onClick={() => onRestoreThread(thread.id)}
+                      className="shrink-0 rounded-md px-2 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-(--color-ink-faint) transition-colors hover:bg-(--color-clay-soft) hover:text-(--color-clay)"
+                    >
+                      Restore
+                    </button>
+                    <button
+                      title="Delete permanently"
+                      onClick={() =>
+                        confirmDeleteId === thread.id
+                          ? (setConfirmDeleteId(null), onDeleteThread(thread.id))
+                          : setConfirmDeleteId(thread.id)
+                      }
+                      className={`shrink-0 rounded-md p-1.5 transition-colors ${
+                        confirmDeleteId === thread.id
+                          ? "bg-red-50 text-red-600"
+                          : "text-(--color-ink-faint) hover:bg-red-50 hover:text-red-500"
+                      }`}
+                    >
+                      <TrashIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -397,6 +468,51 @@ export default function ChatPane({
             </div>
           </div>
         </>
+      )}
+
+      {/* new-conversation FAB + starter popover — matches Mail compose / Tasks brain-dump */}
+      {!active && !newThreadOpen && (
+        <button
+          onClick={() => setNewThreadOpen(true)}
+          title="New conversation"
+          aria-label="New conversation"
+          className="absolute bottom-10 right-5 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-(--color-clay) text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
+        >
+          <ChatIcon className="h-[18px] w-[18px]" />
+        </button>
+      )}
+      {!active && newThreadOpen && (
+        <div className="rise-in absolute bottom-10 right-5 z-30 w-[min(22rem,calc(100%-2.5rem))] rounded-xl border hairline bg-white p-2.5 shadow-2xl">
+          <p className="mb-1.5 font-display text-[10px] font-medium uppercase tracking-[0.2em] text-(--color-ink-faint)">
+            New conversation
+          </p>
+          <input
+            autoFocus
+            value={newThreadName}
+            onChange={(e) => setNewThreadName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setNewThreadOpen(false);
+              if (e.key === "Enter") startThread();
+            }}
+            placeholder="Thread name — e.g. Launch crew"
+            className="w-full rounded-lg border hairline bg-white px-2.5 py-2 text-sm outline-none placeholder:text-(--color-ink-faint) focus:border-(--color-clay)/50"
+          />
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={startThread}
+              disabled={!newThreadName.trim()}
+              className="flex-1 rounded-lg bg-(--color-clay) px-3 py-1.5 text-[12px] font-semibold text-white transition-transform hover:scale-[1.01] disabled:opacity-50"
+            >
+              Start
+            </button>
+            <button
+              onClick={() => setNewThreadOpen(false)}
+              className="rounded-lg border hairline px-3 py-1.5 text-[12px] font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-ink-faint)"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

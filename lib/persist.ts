@@ -81,6 +81,7 @@ export async function loadState(): Promise<PersistedState | null> {
           members: r.members ?? [],
           emoji: r.emoji ?? "",
           messages: r.messages ?? [],
+          archived: r.archived ?? false,
         }))
       : null;
     const aiMessages = aiRes.data?.length
@@ -120,9 +121,16 @@ export async function syncThreads(threads: Thread[]) {
       members: t.members,
       emoji: t.emoji,
       messages: t.messages,
+      archived: t.archived ?? false,
       updated_at: new Date().toISOString(),
     }))
   );
+}
+
+/** Permanently remove a thread; other clients drop it via the realtime DELETE. */
+export async function deleteThread(id: string) {
+  if (!supabase) return;
+  await supabase.from("threads").delete().eq("id", id);
 }
 
 export async function syncAiMessages(messages: AiMessage[]) {
