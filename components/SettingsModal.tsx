@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Provider, Settings } from "@/lib/types";
 import { SavedAccountInfo } from "@/lib/mailApi";
-import { GearIcon, MailIcon } from "./ui";
+import { GearIcon } from "./ui";
 
 const providerPresets: Record<
   Provider,
@@ -110,6 +110,49 @@ function Field({
 /** Providers whose IMAP only accepts a 16-character app password. */
 const appPasswordProviders = new Set<Provider>(["gmail", "yahoo", "icloud"]);
 
+function HostFields({
+  settings,
+  onChange,
+}: {
+  settings: Settings;
+  onChange: (patch: Partial<Settings>) => void;
+}) {
+  return (
+    <div className="grid grid-cols-[1fr_88px] gap-2">
+      <Field label="IMAP host">
+        <input
+          className={inputCls}
+          placeholder="imap.example.com"
+          value={settings.imapHost}
+          onChange={(e) => onChange({ imapHost: e.target.value })}
+        />
+      </Field>
+      <Field label="Port">
+        <input
+          className={inputCls}
+          value={settings.imapPort}
+          onChange={(e) => onChange({ imapPort: Number(e.target.value) || 993 })}
+        />
+      </Field>
+      <Field label="SMTP host">
+        <input
+          className={inputCls}
+          placeholder="smtp.example.com"
+          value={settings.smtpHost}
+          onChange={(e) => onChange({ smtpHost: e.target.value })}
+        />
+      </Field>
+      <Field label="Port">
+        <input
+          className={inputCls}
+          value={settings.smtpPort}
+          onChange={(e) => onChange({ smtpPort: Number(e.target.value) || 465 })}
+        />
+      </Field>
+    </div>
+  );
+}
+
 const inputCls =
   "w-full rounded-lg border hairline bg-white px-3 py-2 text-sm outline-none placeholder:text-(--color-ink-faint) focus:border-(--color-clay)/50";
 
@@ -121,6 +164,7 @@ export default function SettingsModal({
   connectError,
   onChange,
   onConnect,
+  onConnectSaved,
   onDisconnect,
   onSaveAccount,
   onDeleteSavedAccount,
@@ -133,6 +177,7 @@ export default function SettingsModal({
   connectError: string | null;
   onChange: (patch: Partial<Settings>) => void;
   onConnect: () => void;
+  onConnectSaved: (id: string) => void;
   onDisconnect: (account?: string) => void;
   onSaveAccount: () => void;
   onDeleteSavedAccount: (id: string) => void;
@@ -141,6 +186,9 @@ export default function SettingsModal({
   const connected = connectedAccounts.length > 0;
   const currentConnected = connectedAccounts.includes(settings.email);
   const [tab, setTab] = useState<"profile" | "account" | "prefs">("account");
+  // 0 = accounts home; 1–3 = the add-account wizard
+  const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const setProvider = (p: Provider) => {
     const { label: _l, note: _n, ...hosts } = providerPresets[p];
@@ -170,6 +218,28 @@ export default function SettingsModal({
     const { label: _l, note: _n, ...hosts } = providerPresets[acc.provider];
     onChange({ email: acc.email, provider: acc.provider, ...hosts, password: "" });
   };
+
+  const startWizard = () => {
+    onChange({ email: "", password: "" });
+    setAdvancedOpen(false);
+    setStep(1);
+  };
+
+  const finishSetup = (a: SavedAccountInfo) => {
+    selectSaved(a);
+    setAdvancedOpen(false);
+    setStep(2);
+  };
+
+  const detailsReady =
+    settings.email.trim().length > 3 &&
+    settings.email.includes("@") &&
+    (settings.password.trim().length > 0 || selectedSaved?.hasPassword) &&
+    (settings.provider !== "custom" ||
+      (settings.imapHost.trim() && settings.smtpHost.trim()));
+
+  // the connect succeeded when the wizard's account shows up as connected
+  const wizardDone = step === 3 && currentConnected && !connecting;
 
   return (
     <div
@@ -245,7 +315,8 @@ export default function SettingsModal({
             </>
           )}
 
-          {tab === "account" && (
+          {tab === "account" && step === 0 && (
+            /* ---------- ACCOUNTS HOME ---------- */
             <>
               <div className="flex items-center justify-between rounded-lg border hairline bg-(--color-paper) px-3 py-2.5">
                 <span className="text-xs font-medium text-(--color-ink-soft)">
@@ -269,219 +340,107 @@ export default function SettingsModal({
                 </span>
               </div>
 
-              {connectedAccounts.length > 0 && (
-                <Field label="Connected accounts">
-                  <div className="space-y-1">
-                    {connectedAccounts.map((a) => (
-                      <div
-                        key={a}
-                        className="flex w-full items-center gap-2 rounded-lg border hairline px-3 py-2 text-xs"
-                      >
-                        <span className="h-2 w-2 shrink-0 rounded-full bg-(--color-sage)" />
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {a}
-                        </span>
-                        <button
-                          onClick={() => onDisconnect(a)}
-                          className="shrink-0 rounded-md px-1.5 py-0.5 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
-                        >
-                          Disconnect
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </Field>
+              {savedAccounts.length === 0 && localOnly.length === 0 && (
+                <p className="rounded-lg bg-(--color-paper) px-3 py-3 text-[12px] leading-relaxed text-(--color-ink-soft)">
+                  No email accounts yet — Tria is showing demo data. Add your
+                  first account and your real inbox takes over.
+                </p>
               )}
 
               {(savedAccounts.length > 0 || localOnly.length > 0) && (
                 <Field label="Your accounts">
                   <div className="space-y-1">
-                    {savedAccounts.map((a) => (
+                    {savedAccounts.map((a) => {
+                      const isConnected = connectedAccounts.includes(a.email);
+                      const oneClick = a.hasPassword || a.isOAuth;
+                      return (
+                        <div
+                          key={a.id}
+                          className="flex w-full items-center gap-2 rounded-lg border hairline px-3 py-2.5 text-xs"
+                        >
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${
+                              isConnected
+                                ? "bg-(--color-sage)"
+                                : "bg-(--color-ink-faint)/40"
+                            }`}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">
+                              {a.email}
+                            </span>
+                            <span className="block font-display text-[8px] uppercase tracking-[0.14em] text-(--color-ink-faint)">
+                              {providerPresets[a.provider].label}
+                              {isConnected
+                                ? " · connected"
+                                : a.isOAuth
+                                  ? " · signed in"
+                                  : a.hasPassword
+                                    ? " · saved login"
+                                    : " · needs password"}
+                            </span>
+                          </span>
+                          {isConnected ? (
+                            <button
+                              onClick={() => onDisconnect(a.email)}
+                              className="shrink-0 rounded-md px-2 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
+                            >
+                              Disconnect
+                            </button>
+                          ) : oneClick ? (
+                            <button
+                              onClick={() => onConnectSaved(a.id)}
+                              disabled={connecting}
+                              className="shrink-0 rounded-md bg-(--color-clay) px-2.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-white transition-transform hover:scale-[1.03] disabled:opacity-60"
+                            >
+                              {connecting ? "…" : "Connect"}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => finishSetup(a)}
+                              className="shrink-0 rounded-md border hairline px-2.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
+                            >
+                              Finish setup
+                            </button>
+                          )}
+                          <button
+                            onClick={() => onDeleteSavedAccount(a.id)}
+                            title="Remove saved account"
+                            className="shrink-0 rounded-md px-1 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {localOnly.map((a) => (
                       <div
                         key={a.id}
-                        className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
-                          settings.email === a.email
-                            ? "border-(--color-clay) bg-(--color-clay-soft)/40"
-                            : "hairline hover:border-(--color-ink-faint)"
-                        }`}
+                        className="flex w-full items-center gap-2 rounded-lg border hairline px-3 py-2.5 text-xs"
                       >
-                        <button
-                          onClick={() => selectSaved(a)}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                        >
-                          <MailIcon className="h-3.5 w-3.5 shrink-0 text-(--color-ink-faint)" />
-                          <span className="min-w-0 flex-1 truncate font-medium">
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-(--color-ink-faint)/40" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">
                             {a.email}
                           </span>
-                          {a.isOAuth ? (
-                            <span className="shrink-0 rounded-full bg-(--color-clay-soft) px-1.5 py-0.5 font-display text-[8px] font-semibold uppercase tracking-[0.12em] text-(--color-clay)">
-                              Signed in
-                            </span>
-                          ) : (
-                            a.hasPassword && (
-                              <span className="shrink-0 rounded-full bg-(--color-sage)/15 px-1.5 py-0.5 font-display text-[8px] font-semibold uppercase tracking-[0.12em] text-(--color-sage)">
-                                Saved login
-                              </span>
-                            )
-                          )}
-                          <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.14em] text-(--color-ink-faint)">
-                            {providerPresets[a.provider].label}
+                          <span className="block font-display text-[8px] uppercase tracking-[0.14em] text-(--color-ink-faint)">
+                            {providerPresets[a.provider].label} · needs password
                           </span>
-                        </button>
+                        </span>
                         <button
-                          onClick={() => onDeleteSavedAccount(a.id)}
-                          title="Remove saved account"
-                          className="shrink-0 rounded-md px-1 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
+                          onClick={() => {
+                            selectLocal(a.id);
+                            setStep(2);
+                          }}
+                          className="shrink-0 rounded-md border hairline px-2.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
                         >
-                          ✕
+                          Finish setup
                         </button>
                       </div>
-                    ))}
-                    {localOnly.map((a) => (
-                      <button
-                        key={a.id}
-                        onClick={() => selectLocal(a.id)}
-                        className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
-                          settings.email === a.email
-                            ? "border-(--color-clay) bg-(--color-clay-soft)/40"
-                            : "hairline hover:border-(--color-ink-faint)"
-                        }`}
-                      >
-                        <MailIcon className="h-3.5 w-3.5 text-(--color-ink-faint)" />
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {a.email}
-                        </span>
-                        <span className="font-display text-[9px] uppercase tracking-[0.14em] text-(--color-ink-faint)">
-                          {providerPresets[a.provider].label}
-                        </span>
-                      </button>
                     ))}
                   </div>
                 </Field>
               )}
-
-              <Field label="Sign in — no password needed">
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(
-                    [
-                      ["microsoft", "Microsoft"],
-                      ["google", "Google"],
-                    ] as const
-                  ).map(([p, label]) => (
-                    <a
-                      key={p}
-                      href={`/api/oauth/${p}/start`}
-                      className="flex items-center justify-center gap-2 rounded-lg border hairline px-3 py-2 text-xs font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
-                    >
-                      Sign in with {label}
-                    </a>
-                  ))}
-                </div>
-              </Field>
-              <p className="text-[11px] leading-relaxed text-(--color-ink-faint)">
-                Microsoft 365 and Google increasingly block password logins
-                outright — signing in is the reliable route.
-              </p>
-
-              <Field label="Or connect with a password">
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(Object.keys(providerPresets) as Provider[]).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setProvider(p)}
-                      className={`rounded-lg border px-2 py-1.5 font-display text-[10px] font-medium uppercase tracking-[0.1em] transition-colors ${
-                        settings.provider === p
-                          ? "border-(--color-clay) bg-(--color-clay-soft) text-(--color-clay)"
-                          : "hairline text-(--color-ink-soft) hover:border-(--color-ink-faint)"
-                      }`}
-                    >
-                      {providerPresets[p].label}
-                    </button>
-                  ))}
-                </div>
-              </Field>
-
-              <Field label="Email / username">
-                <input
-                  className={inputCls}
-                  value={settings.email}
-                  onChange={(e) => onChange({ email: e.target.value })}
-                />
-              </Field>
-              <Field label="Password / app password">
-                <input
-                  type="password"
-                  className={inputCls}
-                  placeholder={
-                    selectedSaved?.hasPassword
-                      ? "Saved — leave blank to use stored login"
-                      : "••••••••••••"
-                  }
-                  value={settings.password}
-                  onChange={(e) => onChange({ password: e.target.value })}
-                />
-              </Field>
-              {appPasswordProviders.has(settings.provider) &&
-                settings.password.length > 0 &&
-                settings.password.replace(/\s+/g, "").length !== 16 && (
-                  <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
-                    {providerPresets[settings.provider].label} app passwords are
-                    16 characters. This looks like your normal account password —
-                    {providerPresets[settings.provider].label} will reject it.
-                  </p>
-                )}
-              {selectedSaved?.hasPassword && !settings.password && (
-                <p className="text-[11px] leading-relaxed text-(--color-sage)">
-                  This account has a saved login — hit Connect and the stored
-                  password is used automatically.
-                </p>
-              )}
-              {providerPresets[settings.provider].note && (
-                <p className="text-[11px] leading-relaxed text-(--color-ink-faint)">
-                  {providerPresets[settings.provider].note}
-                </p>
-              )}
-              <button
-                onClick={onSaveAccount}
-                className="w-full rounded-lg border border-dashed hairline px-3 py-2 text-xs font-medium text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
-              >
-                + Save to my accounts
-              </button>
-
-              <div className="grid grid-cols-[1fr_88px] gap-2">
-                <Field label="IMAP host">
-                  <input
-                    className={inputCls}
-                    value={settings.imapHost}
-                    onChange={(e) => onChange({ imapHost: e.target.value })}
-                  />
-                </Field>
-                <Field label="Port">
-                  <input
-                    className={inputCls}
-                    value={settings.imapPort}
-                    onChange={(e) =>
-                      onChange({ imapPort: Number(e.target.value) || 993 })
-                    }
-                  />
-                </Field>
-                <Field label="SMTP host">
-                  <input
-                    className={inputCls}
-                    value={settings.smtpHost}
-                    onChange={(e) => onChange({ smtpHost: e.target.value })}
-                  />
-                </Field>
-                <Field label="Port">
-                  <input
-                    className={inputCls}
-                    value={settings.smtpPort}
-                    onChange={(e) =>
-                      onChange({ smtpPort: Number(e.target.value) || 465 })
-                    }
-                  />
-                </Field>
-              </div>
 
               {connectError && (
                 <p className="rounded-lg bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-600">
@@ -489,26 +448,12 @@ export default function SettingsModal({
                 </p>
               )}
 
-              {!currentConnected ? (
-                <button
-                  onClick={onConnect}
-                  disabled={connecting}
-                  className="w-full rounded-lg bg-(--color-clay) px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
-                >
-                  {connecting
-                    ? "Connecting…"
-                    : connected
-                      ? "+ Connect this account too"
-                      : "Connect account"}
-                </button>
-              ) : (
-                <button
-                  onClick={() => onDisconnect(settings.email)}
-                  className="w-full rounded-lg border hairline px-4 py-2.5 text-[13px] font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-ink-faint)"
-                >
-                  Disconnect {settings.email}
-                </button>
-              )}
+              <button
+                onClick={startWizard}
+                className="w-full rounded-lg bg-(--color-clay) px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition-transform hover:scale-[1.01] active:scale-[0.99]"
+              >
+                + Add an account
+              </button>
               {connected && (
                 <button
                   onClick={() => onDisconnect()}
@@ -516,6 +461,262 @@ export default function SettingsModal({
                 >
                   Disconnect all — back to demo data
                 </button>
+              )}
+            </>
+          )}
+
+          {tab === "account" && step > 0 && (
+            /* ---------- ADD-ACCOUNT WIZARD ---------- */
+            <>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() =>
+                    setStep((s) => (s === 1 ? 0 : ((s - 1) as 0 | 1 | 2 | 3)))
+                  }
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-(--color-ink-faint) transition-colors hover:text-(--color-ink)"
+                >
+                  ← Back
+                </button>
+                <span className="font-display text-[10px] font-medium uppercase tracking-[0.2em] text-(--color-ink-faint)">
+                  Add an account
+                </span>
+                <span className="ml-auto flex items-center gap-1.5">
+                  {([1, 2, 3] as const).map((s) => (
+                    <span
+                      key={s}
+                      className={`h-1.5 rounded-full transition-all ${
+                        s === step
+                          ? "w-5 bg-(--color-clay)"
+                          : s < step
+                            ? "w-1.5 bg-(--color-clay)/50"
+                            : "w-1.5 bg-(--color-ink-faint)/25"
+                      }`}
+                    />
+                  ))}
+                </span>
+              </div>
+
+              {step === 1 && (
+                /* ----- STEP 1 · choose how you sign in ----- */
+                <>
+                  <h3 className="font-display text-lg font-light leading-snug">
+                    What email do you want to add?
+                  </h3>
+                  <Field label="Fastest — sign in, no password needed">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {(
+                        [
+                          ["google", "Google / Gmail"],
+                          ["microsoft", "Microsoft"],
+                        ] as const
+                      ).map(([p, label]) => (
+                        <a
+                          key={p}
+                          href={`/api/oauth/${p}/start`}
+                          className="flex items-center justify-center gap-2 rounded-lg border hairline px-3 py-2.5 text-xs font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
+                        >
+                          Sign in with {label}
+                        </a>
+                      ))}
+                    </div>
+                  </Field>
+                  <Field label="Or pick your provider — connects with an app password">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {(Object.keys(providerPresets) as Provider[]).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => {
+                            setProvider(p);
+                            setStep(2);
+                          }}
+                          className="rounded-lg border hairline px-3 py-2.5 text-left text-xs font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
+                        >
+                          {providerPresets[p].label}
+                          {p === "custom" && (
+                            <span className="block font-display text-[8px] font-normal uppercase tracking-[0.14em] text-(--color-ink-faint)">
+                              any IMAP server
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                  <p className="text-[11px] leading-relaxed text-(--color-ink-faint)">
+                    Gmail and Microsoft work best with sign-in — password logins
+                    are increasingly blocked outright.
+                  </p>
+                </>
+              )}
+
+              {step === 2 && (
+                /* ----- STEP 2 · enter details ----- */
+                <>
+                  <h3 className="font-display text-lg font-light leading-snug">
+                    Sign in to {providerPresets[settings.provider].label}
+                  </h3>
+                  {providerPresets[settings.provider].note && (
+                    <p className="rounded-lg bg-(--color-paper) px-3 py-2 text-[11px] leading-relaxed text-(--color-ink-soft)">
+                      {providerPresets[settings.provider].note}
+                    </p>
+                  )}
+                  <Field label="Email address">
+                    <input
+                      className={inputCls}
+                      autoFocus
+                      placeholder="you@example.com"
+                      value={settings.email}
+                      onChange={(e) => onChange({ email: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="App password">
+                    <input
+                      type="password"
+                      className={inputCls}
+                      placeholder={
+                        selectedSaved?.hasPassword
+                          ? "Saved — leave blank to use stored login"
+                          : "••••••••••••"
+                      }
+                      value={settings.password}
+                      onChange={(e) => onChange({ password: e.target.value })}
+                    />
+                  </Field>
+                  {appPasswordProviders.has(settings.provider) &&
+                    settings.password.length > 0 &&
+                    settings.password.replace(/\s+/g, "").length !== 16 && (
+                      <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
+                        {providerPresets[settings.provider].label} app passwords
+                        are 16 characters. This looks like your normal account
+                        password — {providerPresets[settings.provider].label}{" "}
+                        will reject it.
+                      </p>
+                    )}
+                  {selectedSaved?.hasPassword && !settings.password && (
+                    <p className="text-[11px] leading-relaxed text-(--color-sage)">
+                      This account has a saved login — leave the password blank
+                      and the stored one is used.
+                    </p>
+                  )}
+
+                  {settings.provider === "custom" ? (
+                    <HostFields settings={settings} onChange={onChange} />
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setAdvancedOpen((v) => !v)}
+                        className="text-[11px] font-medium text-(--color-ink-faint) transition-colors hover:text-(--color-ink)"
+                      >
+                        {advancedOpen ? "▾" : "▸"} Advanced — server settings
+                      </button>
+                      {advancedOpen && (
+                        <HostFields settings={settings} onChange={onChange} />
+                      )}
+                    </>
+                  )}
+
+                  <button
+                    onClick={() => setStep(3)}
+                    disabled={!detailsReady}
+                    className="w-full rounded-lg bg-(--color-clay) px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40"
+                  >
+                    Continue →
+                  </button>
+                  <button
+                    onClick={() => {
+                      onSaveAccount();
+                      setStep(0);
+                    }}
+                    disabled={!settings.email.trim()}
+                    className="w-full text-[11px] font-medium text-(--color-ink-faint) transition-colors hover:text-(--color-ink) disabled:opacity-40"
+                  >
+                    Save for later without connecting
+                  </button>
+                </>
+              )}
+
+              {step === 3 && !wizardDone && (
+                /* ----- STEP 3 · review + connect ----- */
+                <>
+                  <h3 className="font-display text-lg font-light leading-snug">
+                    Ready to connect
+                  </h3>
+                  <div className="space-y-2 rounded-lg border hairline bg-(--color-paper) px-3 py-3 text-xs">
+                    <div className="flex justify-between gap-3">
+                      <span className="text-(--color-ink-faint)">Account</span>
+                      <span className="min-w-0 truncate font-medium">
+                        {settings.email}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-(--color-ink-faint)">Provider</span>
+                      <span className="font-medium">
+                        {providerPresets[settings.provider].label}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-(--color-ink-faint)">Password</span>
+                      <span className="font-medium">
+                        {settings.password
+                          ? "•".repeat(8)
+                          : selectedSaved?.hasPassword
+                            ? "using saved login"
+                            : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-(--color-ink-faint)">Servers</span>
+                      <span className="min-w-0 truncate font-medium">
+                        {settings.imapHost} · {settings.smtpHost}
+                      </span>
+                    </div>
+                  </div>
+
+                  {connectError && (
+                    <p className="rounded-lg bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-600">
+                      {connectError}
+                    </p>
+                  )}
+
+                  <button
+                    onClick={onConnect}
+                    disabled={connecting}
+                    className="w-full rounded-lg bg-(--color-clay) px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
+                  >
+                    {connecting ? "Connecting…" : "Connect account ⚡"}
+                  </button>
+                </>
+              )}
+
+              {wizardDone && (
+                /* ----- STEP 3 · success ----- */
+                <div className="space-y-4 pt-2 text-center">
+                  <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-(--color-sage)/15 text-xl text-(--color-sage)">
+                    ✓
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {settings.email} is live
+                    </p>
+                    <p className="mt-1 text-[12px] leading-relaxed text-(--color-ink-soft)">
+                      Your inbox is loading in the Mail pane. The login is saved
+                      (encrypted), so next time it reconnects automatically.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={startWizard}
+                      className="flex-1 rounded-lg border hairline px-3 py-2 text-[13px] font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-ink-faint)"
+                    >
+                      + Add another
+                    </button>
+                    <button
+                      onClick={() => setStep(0)}
+                      className="flex-1 rounded-lg bg-(--color-ink) px-3 py-2 text-[13px] font-semibold text-white transition-transform hover:scale-[1.01]"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
               )}
             </>
           )}

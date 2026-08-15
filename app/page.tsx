@@ -398,6 +398,27 @@ export default function Home() {
     }
   };
 
+  /** One-click connect for a saved account — the server uses its stored login. */
+  const connectSavedAccount = async (id: string) => {
+    setConnecting(true);
+    setConnectError(null);
+    const res = await apiConnect({ accountId: id });
+    setConnecting(false);
+    if (!res.ok) {
+      setConnectError(res.error ?? "Connection failed");
+      return;
+    }
+    setLiveAccounts(res.accounts ?? []);
+    setSelectedEmailId(null);
+    try {
+      const msgs = await apiMessages("inbox", settings.timezone);
+      setEmails(msgs);
+      showToast(`⚡ Live — connected to ${id}`);
+    } catch (err) {
+      showToast(String(err instanceof Error ? err.message : err));
+    }
+  };
+
   const disconnectAccount = async (account?: string) => {
     const remaining = await apiDisconnect(account);
     setLiveAccounts(remaining);
@@ -1000,6 +1021,7 @@ export default function Home() {
           connectError={connectError}
           onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
           onConnect={connectAccount}
+          onConnectSaved={connectSavedAccount}
           onDisconnect={disconnectAccount}
           onSaveAccount={saveAccountToServer}
           onDeleteSavedAccount={deleteSavedAccount}
