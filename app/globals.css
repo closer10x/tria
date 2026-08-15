@@ -80,6 +80,15 @@ body {
   background: transparent;
 }
 
+/* still scrollable, just no visible bar (horizontal chip/tab rows) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;

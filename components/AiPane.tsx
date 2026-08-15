@@ -104,7 +104,7 @@ export default function AiPane({
       </div>
 
       {/* quick prompts */}
-      <div className="flex gap-1.5 overflow-x-auto px-4 pb-2">
+      <div className="no-scrollbar flex gap-1.5 overflow-x-auto px-4 pb-2">
         {["Summarize my unread", "What's due this week?", "Draft a reply"].map(
           (q) => (
             <button
