@@ -416,15 +416,27 @@ export default function MailPane({
   const selected = emails.find((e) => e.id === selectedId) ?? null;
 
   const inFolder = emails.filter((e) => e.folder === folder && byAccount(e));
-  const aiResult =
-    aiMode && query.trim() ? aiSearch(query, inFolder) : null;
-  const filtered = aiResult
-    ? aiResult.results
-    : inFolder.filter(
+  const q = query.trim().toLowerCase();
+  const plainMatches = q
+    ? inFolder.filter(
         (e) =>
-          e.subject.toLowerCase().includes(query.toLowerCase()) ||
-          e.from.name.toLowerCase().includes(query.toLowerCase())
-      );
+          e.subject.toLowerCase().includes(q) ||
+          e.from.name.toLowerCase().includes(q) ||
+          e.from.email.toLowerCase().includes(q)
+      )
+    : inFolder;
+  // Smart search runs behind the scenes: intent parsing (unread / from X /
+  // with attachments / about Y) is always tried; a plain substring match is
+  // merged in so a literal subject search never comes up empty. The desktop
+  // AI toggle only controls whether the understood-filters chips are shown.
+  const smart = q ? aiSearch(query, inFolder) : null;
+  const filtered = (() => {
+    if (!q) return inFolder;
+    if (!smart || smart.chips.length === 0) return plainMatches;
+    const seen = new Set(smart.results.map((e) => e.id));
+    return [...smart.results, ...plainMatches.filter((e) => !seen.has(e.id))];
+  })();
+  const aiResult = aiMode && smart && smart.chips.length ? smart : null;
 
   const selecting = selectedIds.size > 0;
   const allSelected =
@@ -814,21 +826,19 @@ export default function MailPane({
         /* ---------- LIST ---------- */
         <>
           {/* ---- mobile toolbar: burger · folder name · search · refresh ---- */}
-          <div className="flex items-center gap-1 px-3 pt-2.5 lg:hidden">
+          <div className="glass absolute inset-x-0 top-0 z-10 flex items-center gap-1.5 rounded-t-xl px-3 py-2 lg:hidden">
             <button
               onClick={() => setDrawerOpen(true)}
               aria-label="Open mail menu"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-(--color-ink-soft) transition-colors hover:bg-(--color-paper)"
+              className="glass-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-(--color-ink-faint) transition-colors"
             >
-              <svg viewBox="0 0 16 16" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+              <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                 <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
               </svg>
             </button>
             {mobileSearchOpen ? (
               <div
-                className={`flex min-w-0 flex-1 items-center gap-1 rounded-lg border bg-white pr-1 transition-colors ${
-                  aiMode ? "border-(--color-clay)/50" : "hairline"
-                }`}
+                className="glass-btn flex min-w-0 flex-1 items-center gap-1 rounded-full pr-1"
               >
                 <input
                   ref={mobileSearchRef}
@@ -840,25 +850,16 @@ export default function MailPane({
                       setMobileSearchOpen(false);
                     }
                   }}
-                  placeholder={aiMode ? "Ask your mail…" : "Search mail…"}
+                  placeholder="Search mail…"
                   className="min-w-0 flex-1 bg-transparent px-3 py-1.5 text-sm outline-none placeholder:text-(--color-ink-faint)"
                 />
-                <button
-                  onClick={() => setAiMode((v) => !v)}
-                  title="Toggle AI search"
-                  className={`flex h-7 items-center gap-1 rounded-md px-2 font-display text-[9px] font-semibold uppercase tracking-[0.14em] ${
-                    aiMode ? "bg-(--color-clay) text-white" : "bg-(--color-paper) text-(--color-ink-faint)"
-                  }`}
-                >
-                  <SparkIcon className="h-3 w-3" /> AI
-                </button>
                 <button
                   onClick={() => {
                     setQuery("");
                     setMobileSearchOpen(false);
                   }}
                   aria-label="Close search"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-(--color-ink-faint)"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-(--color-ink-faint)"
                 >
                   ✕
                 </button>
@@ -883,9 +884,9 @@ export default function MailPane({
                 <button
                   onClick={() => setMobileSearchOpen(true)}
                   aria-label="Search mail"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-(--color-ink-soft) transition-colors hover:bg-(--color-paper)"
+                  className="glass-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-(--color-ink-faint) transition-colors"
                 >
-                  <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                  <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                     <circle cx="7" cy="7" r="4.5" />
                     <path d="M10.5 10.5L14 14" />
                   </svg>
@@ -894,7 +895,7 @@ export default function MailPane({
                   onClick={() => onRefresh(folder)}
                   disabled={refreshing}
                   aria-label="Refresh mail"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-(--color-ink-soft) transition-colors hover:bg-(--color-paper) disabled:opacity-60"
+                  className="glass-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-(--color-ink-faint) transition-colors disabled:opacity-60"
                 >
                   <RefreshIcon className={`h-4 w-4 ${refreshing ? "spin-slow" : ""}`} />
                 </button>
@@ -973,7 +974,7 @@ export default function MailPane({
             ))}
           </div>
           {selecting && (
-            <div className="mx-5 mt-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-(--color-clay)/40 bg-(--color-clay-soft)/40 px-2.5 py-2">
+            <div className="mx-5 mt-[3.5rem] flex flex-wrap items-center gap-1.5 rounded-lg border border-(--color-clay)/40 bg-(--color-clay-soft)/40 px-2.5 py-2 lg:mt-3">
               <span className="font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-(--color-clay)">
                 {selectedIds.size} selected
               </span>
@@ -1091,7 +1092,9 @@ export default function MailPane({
               if (el.scrollHeight - el.scrollTop - el.clientHeight < 400)
                 onLoadMore(folder);
             }}
-            className="nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pb-3"
+            className={`nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pb-3 lg:pt-0 ${
+              selecting ? "" : "pt-[3.25rem]"
+            }`}
           >
             {filtered.map((email) => (
               <div

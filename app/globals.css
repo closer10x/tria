@@ -227,3 +227,36 @@ html[data-theme="dark"] .nice-scroll {
 html[data-theme="dark"] .nice-scroll::-webkit-scrollbar-thumb {
   background: #39414f;
 }
+
+/* Apple-style frosted glass — the mobile mail toolbar floats over the list
+   and the mail beneath blurs through it as you scroll. Falls back to a solid
+   surface where backdrop-filter is unsupported. */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  border-bottom: 1px solid rgba(20, 23, 28, 0.06);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .glass {
+    background: rgba(255, 255, 255, 0.55);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+  }
+}
+html[data-theme="dark"] .glass {
+  background: rgba(23, 28, 36, 0.78);
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+}
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  html[data-theme="dark"] .glass {
+    background: rgba(23, 28, 36, 0.55);
+  }
+}
+/* the little pill controls sitting on the glass */
+.glass-btn {
+  background: rgba(127, 127, 127, 0.1);
+}
+.glass-btn:active {
+  background: rgba(127, 127, 127, 0.22);
+}
