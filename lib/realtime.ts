@@ -42,6 +42,8 @@ export function mergeThread(local: Thread | undefined, incoming: Thread): Thread
 export type ThreadsRealtime = {
   /** Throttled by the caller; announces typing in a thread to other clients. */
   sendTyping: (threadId: string, author: string) => void;
+  /** (Re-)announce this client's display name to the presence roster. */
+  updatePresence: (name: string) => void;
   unsubscribe: () => void;
 };
 
@@ -49,12 +51,19 @@ export function subscribeThreads(handlers: {
   onUpsert: (thread: Thread) => void;
   onDelete: (threadId: string) => void;
   onTyping: (threadId: string, author: string) => void;
+  /** Names currently online, deduped, self included. */
+  onPresence: (names: string[]) => void;
   /** Used to ignore this client's own typing broadcasts. */
   selfAuthor: () => string;
 }): ThreadsRealtime | null {
   if (!supabase) return null;
+  // random per-tab key: two devices with the same display name both count
+  const presenceKey =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : String(Math.random());
   const channel: RealtimeChannel = supabase
-    .channel("tria-threads")
+    .channel("tria-threads", { config: { presence: { key: presenceKey } } })
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "threads" },
@@ -72,7 +81,17 @@ export function subscribeThreads(handlers: {
       if (p?.threadId && p.author && p.author !== handlers.selfAuthor())
         handlers.onTyping(p.threadId, p.author);
     })
-    .subscribe();
+    .on("presence", { event: "sync" }, () => {
+      const state = channel.presenceState<{ name?: string }>();
+      const names = new Set<string>();
+      for (const metas of Object.values(state))
+        for (const m of metas) if (m.name) names.add(m.name);
+      handlers.onPresence(Array.from(names));
+    })
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED")
+        channel.track({ name: handlers.selfAuthor() });
+    });
 
   return {
     sendTyping: (threadId, author) => {
@@ -81,6 +100,9 @@ export function subscribeThreads(handlers: {
         event: "typing",
         payload: { threadId, author },
       });
+    },
+    updatePresence: (name) => {
+      channel.track({ name });
     },
     unsubscribe: () => {
       supabase?.removeChannel(channel);

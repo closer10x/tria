@@ -35,29 +35,46 @@ export default function ChatPane({
   activeThreadId,
   pendingAttachment,
   typingIn,
+  selfName,
+  onlineUsers,
   onOpenThread,
   onBack,
   onSend,
   onSetPending,
   onTyping,
+  onChangeSelfName,
+  onCreateThread,
 }: {
   threads: Thread[];
   emails: Email[];
   tasks: Task[];
   activeThreadId: string | null;
   pendingAttachment: Attachment | null;
-  typingIn: string | null;
+  typingIn: { threadId: string; author: string } | null;
+  /** This device's chat identity — decides which bubbles render as "mine". */
+  selfName: string;
+  /** Display names currently connected to the realtime channel. */
+  onlineUsers: string[];
   onOpenThread: (id: string) => void;
   onBack: () => void;
   onSend: (text: string) => void;
   onSetPending: (a: Attachment | null) => void;
   /** Called while the user types — feeds the realtime typing indicator. */
   onTyping?: () => void;
+  onChangeSelfName: (name: string) => void;
+  onCreateThread: (name: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [newThreadOpen, setNewThreadOpen] = useState(false);
+  const [newThreadName, setNewThreadName] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const active = threads.find((t) => t.id === activeThreadId) ?? null;
+  const online = new Set(onlineUsers);
+  // legacy messages predate identities and were always the workspace owner's
+  const isMine = (author: string) => author === selfName || author === "me";
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -77,6 +94,83 @@ export default function ChatPane({
     <div className="flex h-full min-h-0 flex-col">
       {!active ? (
         <div className="nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pt-1 pb-3">
+          {/* who you are + who's here */}
+          <div className="flex items-center gap-2 py-2.5">
+            {editingName ? (
+              <form
+                className="flex min-w-0 flex-1 items-center gap-1.5"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (nameDraft.trim()) onChangeSelfName(nameDraft.trim());
+                  setEditingName(false);
+                }}
+              >
+                <input
+                  autoFocus
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  placeholder="Your name"
+                  className="min-w-0 flex-1 rounded-lg border hairline bg-white px-2.5 py-1 text-xs outline-none focus:border-(--color-clay)/50"
+                />
+                <button
+                  type="submit"
+                  className="shrink-0 rounded-lg bg-(--color-clay) px-2.5 py-1 text-[11px] font-semibold text-white"
+                >
+                  Save
+                </button>
+              </form>
+            ) : (
+              <button
+                onClick={() => {
+                  setNameDraft(selfName);
+                  setEditingName(true);
+                }}
+                title="Change your chat name"
+                className="flex min-w-0 items-center gap-1.5 text-[11px] text-(--color-ink-faint) transition-colors hover:text-(--color-ink)"
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full bg-(--color-sage)" />
+                Chatting as{" "}
+                <span className="font-semibold text-(--color-ink-soft)">
+                  {selfName || "…"}
+                </span>
+              </button>
+            )}
+            <span className="ml-auto shrink-0 text-[10px] text-(--color-ink-faint)">
+              {onlineUsers.length} online
+            </span>
+            <button
+              onClick={() => setNewThreadOpen((v) => !v)}
+              className="shrink-0 rounded-lg bg-(--color-clay) px-2.5 py-1 text-[11px] font-semibold text-white transition-transform hover:scale-[1.03]"
+            >
+              + New
+            </button>
+          </div>
+          {newThreadOpen && (
+            <form
+              className="rise-in flex items-center gap-1.5 py-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!newThreadName.trim()) return;
+                onCreateThread(newThreadName.trim());
+                setNewThreadName("");
+                setNewThreadOpen(false);
+              }}
+            >
+              <input
+                autoFocus
+                value={newThreadName}
+                onChange={(e) => setNewThreadName(e.target.value)}
+                placeholder="Thread name — e.g. Launch crew"
+                className="min-w-0 flex-1 rounded-lg border hairline bg-white px-2.5 py-1.5 text-xs outline-none focus:border-(--color-clay)/50"
+              />
+              <button
+                type="submit"
+                className="shrink-0 rounded-lg bg-(--color-clay) px-2.5 py-1.5 text-[11px] font-semibold text-white"
+              >
+                Create
+              </button>
+            </form>
+          )}
           {threads.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
               <ChatIcon className="h-5 w-5 text-(--color-ink-faint)" />
@@ -84,7 +178,7 @@ export default function ChatPane({
                 No conversations yet.
               </p>
               <p className="text-[11px] leading-relaxed text-(--color-ink-faint)">
-                Share an email or a task to start one.
+                Start one with + New, or share an email or a task.
               </p>
             </div>
           )}
@@ -111,7 +205,7 @@ export default function ChatPane({
                     </div>
                     <p className="truncate text-xs text-(--color-ink-soft)">
                       {last
-                        ? `${last.author === "me" ? "You" : last.author}: ${
+                        ? `${isMine(last.author) ? "You" : last.author}: ${
                             last.text || "shared an item"
                           }`
                         : "No messages yet"}
@@ -132,10 +226,22 @@ export default function ChatPane({
               ←
             </button>
             <span className="text-base">{active.emoji}</span>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-semibold leading-none">{active.name}</p>
-              <p className="mt-0.5 text-[11px] text-(--color-ink-faint)">
-                {active.members.join(" · ")}
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-(--color-ink-faint)">
+                {active.members.map((m) => (
+                  <span key={m} className="inline-flex items-center gap-1">
+                    <span
+                      title={online.has(m) ? "online" : "offline"}
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        online.has(m) || (isMine(m) && selfName)
+                          ? "bg-(--color-sage)"
+                          : "bg-(--color-ink-faint)/40"
+                      }`}
+                    />
+                    {isMine(m) ? "You" : m}
+                  </span>
+                ))}
               </p>
             </div>
           </div>
@@ -145,7 +251,7 @@ export default function ChatPane({
             className="nice-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4"
           >
             {active.messages.map((m) => {
-              const mine = m.author === "me";
+              const mine = isMine(m.author);
               return (
                 <div
                   key={m.id}
@@ -182,12 +288,17 @@ export default function ChatPane({
                 </div>
               );
             })}
-            {typingIn === active.id && (
+            {typingIn?.threadId === active.id && (
               <div className="mb-3 flex justify-start">
-                <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border hairline bg-white px-3.5 py-3">
-                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-(--color-ink-faint)" />
-                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-(--color-ink-faint)" />
-                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-(--color-ink-faint)" />
+                <div className="rounded-2xl rounded-bl-md border hairline bg-white px-3.5 py-2">
+                  <p className="mb-1 text-[10px] font-bold text-(--color-clay)">
+                    {typingIn.author}
+                  </p>
+                  <div className="flex items-center gap-1 pb-1">
+                    <span className="typing-dot h-1.5 w-1.5 rounded-full bg-(--color-ink-faint)" />
+                    <span className="typing-dot h-1.5 w-1.5 rounded-full bg-(--color-ink-faint)" />
+                    <span className="typing-dot h-1.5 w-1.5 rounded-full bg-(--color-ink-faint)" />
+                  </div>
                 </div>
               </div>
             )}

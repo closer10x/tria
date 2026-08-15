@@ -109,7 +109,15 @@ export default function Home() {
   const [pendingAttachment, setPendingAttachment] =
     useState<Attachment | null>(null);
   const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
-  const [typingIn, setTypingIn] = useState<string | null>(null);
+  const [typingIn, setTypingIn] = useState<{
+    threadId: string;
+    author: string;
+  } | null>(null);
+  // Chat identity is per DEVICE (localStorage), not per workspace: the synced
+  // settings row is shared by everyone who opens this deployment, so it can't
+  // hold an individual's name.
+  const [chatName, setChatName] = useState("");
+  const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -237,10 +245,27 @@ export default function Home() {
   // typing indicators travel over the same channel.
   const realtimeRef = useRef<ThreadsRealtime | null>(null);
   const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const settingsNameRef = useRef(settings.name);
+  const chatNameRef = useRef("");
+
+  // hydrate identity: device-local name first, else the profile name
   useEffect(() => {
-    settingsNameRef.current = settings.name;
-  }, [settings.name]);
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("tria-chat-name");
+    } catch {}
+    if (stored?.trim()) setChatName(stored.trim());
+  }, []);
+  useEffect(() => {
+    if (!chatName && settings.name && synced) setChatName(settings.name);
+  }, [settings.name, synced, chatName]);
+  useEffect(() => {
+    chatNameRef.current = chatName;
+    if (!chatName) return;
+    try {
+      localStorage.setItem("tria-chat-name", chatName);
+    } catch {}
+    realtimeRef.current?.updatePresence(chatName);
+  }, [chatName]);
 
   useEffect(() => {
     if (!synced) return; // wait for hydration so merges start from real state
@@ -262,12 +287,13 @@ export default function Home() {
         }),
       onDelete: (id) =>
         setThreads((prev) => prev.filter((t) => t.id !== id)),
-      onTyping: (threadId) => {
-        setTypingIn(threadId);
+      onTyping: (threadId, author) => {
+        setTypingIn({ threadId, author });
         if (typingClearRef.current) clearTimeout(typingClearRef.current);
         typingClearRef.current = setTimeout(() => setTypingIn(null), 3000);
       },
-      selfAuthor: () => settingsNameRef.current,
+      onPresence: setOnlineUsers,
+      selfAuthor: () => chatNameRef.current,
     });
     realtimeRef.current = sub;
     return () => {
@@ -283,7 +309,7 @@ export default function Home() {
     const now = Date.now();
     if (now - lastTypingSentRef.current < 2000) return;
     lastTypingSentRef.current = now;
-    realtimeRef.current.sendTyping(activeThreadId, settingsNameRef.current);
+    realtimeRef.current.sendTyping(activeThreadId, chatNameRef.current);
   }, [activeThreadId]);
 
   // keep the offline mail cache in step with whatever is on screen
@@ -1057,19 +1083,44 @@ export default function Home() {
   const sendMessage = (text: string) => {
     if (!activeThreadId) return;
     const threadId = activeThreadId;
+    const author = chatName || settings.name || "Someone";
     const msg: Message = {
       id: nextId("m"),
-      author: "me",
+      author,
       text,
       time: nowTime(),
       attachment: pendingAttachment ?? undefined,
     };
     setThreads((prev) =>
       prev.map((t) =>
-        t.id === threadId ? { ...t, messages: [...t.messages, msg] } : t
+        t.id === threadId
+          ? {
+              ...t,
+              // posting makes you a member — membership grows organically
+              members: t.members.includes(author)
+                ? t.members
+                : [...t.members, author],
+              messages: [...t.messages, msg],
+            }
+          : t
       )
     );
     setPendingAttachment(null);
+  };
+
+  const createThread = (name: string) => {
+    const author = chatName || settings.name || "Someone";
+    const emojis = ["💬", "🚀", "📋", "🌊", "🏠", "⚡", "🧭", "🎯"];
+    const thread: Thread = {
+      id: nextId("th"),
+      name,
+      members: [author],
+      emoji: emojis[Math.floor(Math.random() * emojis.length)],
+      messages: [],
+    };
+    setThreads((prev) => [...prev, thread]);
+    setActiveThreadId(thread.id);
+    showToast(`💬 ${name} created — everyone on Tria can join in`);
   };
 
   const unreadCount = emails.filter(
@@ -1224,11 +1275,15 @@ export default function Home() {
                 activeThreadId={activeThreadId}
                 pendingAttachment={pendingAttachment}
                 typingIn={typingIn}
+                selfName={chatName}
+                onlineUsers={onlineUsers}
                 onOpenThread={setActiveThreadId}
                 onBack={() => setActiveThreadId(null)}
                 onSend={sendMessage}
                 onSetPending={setPendingAttachment}
                 onTyping={broadcastTyping}
+                onChangeSelfName={setChatName}
+                onCreateThread={createThread}
               />
             ) : (
               <AiPane
