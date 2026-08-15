@@ -37,14 +37,30 @@ export async function GET() {
   const desc = data.error_description ?? data.error ?? "";
   const code = desc.split(":")[0] || null;
 
+  // shape hints only — enough to spot a truncated or mangled paste, never the value
+  const shape = {
+    length: clientSecret.length,
+    looksLikeSecretId: uuid.test(clientSecret),
+    hasWhitespace: /\s/.test(clientSecret),
+    hasMaskingChars: /[*•…]/.test(clientSecret) || clientSecret.includes("..."),
+    startsWith: clientSecret.slice(0, 3),
+    endsWith: clientSecret.slice(-2),
+    typicalLength: clientSecret.length >= 34 && clientSecret.length <= 48,
+  };
+
   return NextResponse.json({
-    secretLooksLikeAnId: uuid.test(clientSecret),
-    secretAccepted: Boolean(data.access_token) || !/AADSTS7000215/.test(desc),
+    clientId, // public identifier — confirms which registration is in use
+    shape,
+    secretAccepted: Boolean(data.access_token),
     code,
     verdict: data.access_token
       ? "Secret is valid — client authenticated."
       : /AADSTS7000215/.test(desc)
-        ? "Secret is WRONG — Microsoft says this is the secret ID, not the value."
+        ? shape.looksLikeSecretId
+          ? "Wrong field: this is the secret ID, not the secret value."
+          : shape.hasWhitespace || shape.hasMaskingChars || !shape.typicalLength
+            ? "Secret looks truncated or mangled — copy the full Value with the copy button."
+            : "Microsoft rejects this secret. It is likely expired, deleted, or belongs to a different app registration than the client ID above."
         : /AADSTS7000218/.test(desc)
           ? "No secret reached the server."
           : `Client auth got past the secret check (${code}).`,
