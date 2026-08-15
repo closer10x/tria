@@ -51,22 +51,20 @@ export default function BrainDump({
 
   if (!open) {
     return (
-      // a slim pill, not a banner — the two icons say "type or talk" so the
-      // label doesn't have to, and the full prompt lives in the tooltip
+      // mirrors the Mail pane's compose button: same size, corner and lift
       <button
         onClick={() => setOpen(true)}
         title="Brain-dump your tasks — type or talk, one big blur"
-        className="mx-5 mt-2.5 flex items-center gap-1.5 self-start rounded-full border hairline px-3 py-1.5 text-[11px] font-medium text-(--color-ink-faint) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-ink-soft)"
+        aria-label="Brain-dump tasks"
+        className="absolute bottom-10 right-5 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-(--color-clay) text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
       >
-        <SparkIcon className="h-3 w-3 text-(--color-clay)" />
-        Brain-dump
-        <MicIcon className="h-3 w-3 opacity-50" />
+        <SparkIcon className="h-[18px] w-[18px]" />
       </button>
     );
   }
 
   return (
-    <div className="mx-5 mt-3 rounded-lg border hairline p-2.5">
+    <div className="rise-in absolute bottom-10 right-5 z-30 w-[min(22rem,calc(100%-2.5rem))] rounded-xl border hairline bg-white p-2.5 shadow-2xl">
       <div className="flex items-end gap-2">
         <textarea
           autoFocus

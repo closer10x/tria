@@ -103,7 +103,7 @@ export default function TaskPane({
 
   return (
     <section
-      className={`pane flex h-full min-h-0 flex-col rounded-xl transition-shadow ${
+      className={`pane relative flex h-full min-h-0 flex-col rounded-xl transition-shadow ${
         emailOver ? "ring-2 ring-(--color-clay)" : ""
       }`}
       onDragOver={(e) => {
@@ -131,7 +131,6 @@ export default function TaskPane({
         title="Smart Tasks"
         count={emailOver ? "drop to create" : `${open} open`}
       />
-      {onBrainDump && <BrainDump onTasks={onBrainDump} />}
       <div className="nice-scroll min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-4">
         {statusOrder.map((status) => {
           const group = tasks.filter((t) => t.status === status);
@@ -367,15 +366,20 @@ export default function TaskPane({
           );
         })}
         {tasks.length === 0 && (
-          <div className="mt-16 text-center text-sm text-(--color-ink-faint)">
-            <p className="mb-1 text-2xl">✦</p>
-            Open an email and tap{" "}
-            <span className="font-semibold text-(--color-clay)">
-              Make Smart Task
-            </span>
+          // centred on both axes, not just pushed down from the top
+          <div className="flex h-full items-center justify-center px-4 text-center text-sm text-(--color-ink-faint)">
+            <div>
+              <p className="mb-1 text-2xl">✦</p>
+              Open an email and tap{" "}
+              <span className="font-semibold text-(--color-clay)">
+                Make Smart Task
+              </span>
+            </div>
           </div>
         )}
       </div>
+      {/* floats over the list, bottom-right, like the Mail pane's compose */}
+      {onBrainDump && <BrainDump onTasks={onBrainDump} />}
     </section>
   );
 }
