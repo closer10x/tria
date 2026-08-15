@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Provider, Settings } from "@/lib/types";
 import { SavedAccountInfo } from "@/lib/mailApi";
+import { GoogleIcon, MicrosoftIcon, ProviderIcon } from "./brandIcons";
 import { GearIcon } from "./ui";
 
 const providerPresets: Record<
@@ -506,15 +507,16 @@ export default function SettingsModal({
                     <div className="grid grid-cols-2 gap-1.5">
                       {(
                         [
-                          ["google", "Google / Gmail"],
-                          ["microsoft", "Microsoft"],
+                          ["google", "Google / Gmail", GoogleIcon],
+                          ["microsoft", "Microsoft", MicrosoftIcon],
                         ] as const
-                      ).map(([p, label]) => (
+                      ).map(([p, label, Icon]) => (
                         <a
                           key={p}
                           href={`/api/oauth/${p}/start`}
                           className="flex items-center justify-center gap-2 rounded-lg border hairline px-3 py-2.5 text-xs font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
                         >
+                          <Icon className="h-4 w-4 shrink-0" />
                           Sign in with {label}
                         </a>
                       ))}
@@ -529,14 +531,17 @@ export default function SettingsModal({
                             setProvider(p);
                             setStep(2);
                           }}
-                          className="rounded-lg border hairline px-3 py-2.5 text-left text-xs font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
+                          className="flex items-center gap-2.5 rounded-lg border hairline px-3 py-2.5 text-left text-xs font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
                         >
-                          {providerPresets[p].label}
-                          {p === "custom" && (
-                            <span className="block font-display text-[8px] font-normal uppercase tracking-[0.14em] text-(--color-ink-faint)">
-                              any IMAP server
-                            </span>
-                          )}
+                          <ProviderIcon provider={p} className="h-4 w-4 shrink-0" />
+                          <span className="min-w-0">
+                            {providerPresets[p].label}
+                            {p === "custom" && (
+                              <span className="block font-display text-[8px] font-normal uppercase tracking-[0.14em] text-(--color-ink-faint)">
+                                any IMAP server
+                              </span>
+                            )}
+                          </span>
                         </button>
                       ))}
                     </div>
