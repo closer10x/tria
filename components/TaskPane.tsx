@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Email, Task, TaskPriority, TaskStatus } from "@/lib/types";
+import type { ParsedTask } from "@/app/api/ai/parse/route";
+import BrainDump from "./BrainDump";
 import { ChatIcon, ClipIcon, PaneHeader, PinIcon, SparkIcon, TrashIcon } from "./ui";
 
 const statusOrder: TaskStatus[] = ["doing", "todo", "done"];

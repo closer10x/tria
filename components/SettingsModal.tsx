@@ -169,6 +169,7 @@ export default function SettingsModal({
   onDisconnect,
   onSaveAccount,
   onDeleteSavedAccount,
+  onRenameAccount,
   onClose,
 }: {
   settings: Settings;
@@ -182,6 +183,7 @@ export default function SettingsModal({
   onDisconnect: (account?: string) => void;
   onSaveAccount: () => void;
   onDeleteSavedAccount: (id: string) => void;
+  onRenameAccount: (account: SavedAccountInfo, label: string) => void;
   onClose: () => void;
 }) {
   const connected = connectedAccounts.length > 0;
@@ -192,6 +194,8 @@ export default function SettingsModal({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   // removing a saved login is irreversible (encrypted password/token goes with
   // it), so ✕ arms a confirm instead of deleting outright
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const setProvider = (p: Provider) => {
@@ -409,6 +413,47 @@ export default function SettingsModal({
                               className="shrink-0 rounded-md border hairline px-2.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
                             >
                               Finish setup
+                            </button>
+                          )}
+                          {renamingId === a.id ? (
+                            <span
+                              className="flex shrink-0 items-center gap-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                autoFocus
+                                value={renameText}
+                                placeholder={a.email}
+                                onChange={(e) => setRenameText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    onRenameAccount(a, renameText);
+                                    setRenamingId(null);
+                                  }
+                                  if (e.key === "Escape") setRenamingId(null);
+                                }}
+                                className="w-36 rounded-md border hairline px-2 py-1 text-xs outline-none focus:border-(--color-clay)/50"
+                              />
+                              <button
+                                onClick={() => {
+                                  onRenameAccount(a, renameText);
+                                  setRenamingId(null);
+                                }}
+                                className="rounded-md bg-(--color-ink) px-2 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-white"
+                              >
+                                Save
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setRenamingId(a.id);
+                                setRenameText(a.label ?? "");
+                              }}
+                              title="Name this account"
+                              className="shrink-0 rounded-md px-1.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-(--color-ink-faint) transition-colors hover:text-(--color-clay)"
+                            >
+                              Rename
                             </button>
                           )}
                           {confirmDeleteId === a.id ? (

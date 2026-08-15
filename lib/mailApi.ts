@@ -1,4 +1,4 @@
-import { Email, Folder, Provider } from "./types";
+import { Email, Folder, OutgoingAttachment, Provider } from "./types";
 
 type ConnectPayload = {
   /** Full-credential connect. Omit pass to fall back to the saved login. */
@@ -141,10 +141,12 @@ export async function apiSavedAccountDelete(id: string): Promise<SavedAccountsRe
 export async function apiMessages(
   role: Folder,
   tz: string,
-  account: string = "all"
+  account: string = "all",
+  /** how many newer messages to skip — paging back through the mailbox */
+  offset = 0
 ): Promise<Email[]> {
   const res = await fetch(
-    `/api/mail/messages?role=${role}&tz=${encodeURIComponent(tz)}&account=${encodeURIComponent(account)}`
+    `/api/mail/messages?role=${role}&tz=${encodeURIComponent(tz)}&account=${encodeURIComponent(account)}&offset=${offset}`
   );
   const data = (await res.json()) as { ok: boolean; messages?: Email[]; error?: string };
   if (!data.ok || !data.messages) throw new Error(data.error ?? "Fetch failed");
@@ -269,6 +271,7 @@ export async function apiSend(payload: {
   inReplyTo?: string;
   references?: string[];
   account?: string;
+  attachments?: OutgoingAttachment[];
 }): Promise<void> {
   const res = await fetch("/api/mail/send", {
     method: "POST",

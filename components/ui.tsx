@@ -192,6 +192,17 @@ export function GearIcon({ className = "" }: { className?: string }) {
   );
 }
 
+export function MicIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
+      strokeLinecap="round" strokeLinejoin="round" className={`h-4 w-4 ${className}`}>
+      <rect x="6" y="1.5" width="4" height="8" rx="2" />
+      <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0" />
+      <path d="M8 12v2.5M5.8 14.5h4.4" />
+    </svg>
+  );
+}
+
 export function ClipIcon({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"

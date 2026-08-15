@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Email, Folder } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import { Email, Folder, OutgoingAttachment } from "@/lib/types";
 import {
   ArchiveIcon,
   Avatar,
@@ -17,6 +17,9 @@ import {
   Tag,
   TrashIcon,
 } from "./ui";
+
+/** Most providers reject much beyond this once base64-encoded. */
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 const folders: { key: Folder; label: string }[] = [
   { key: "inbox", label: "Inbox" },
@@ -206,6 +209,9 @@ export default function MailPane({
   refreshing,
   restoreDraft,
   onDraftRestored,
+  onLoadMore,
+  loadingMore,
+  noMoreMail,
   snoozeOptions,
 }: {
   emails: Email[];
@@ -228,7 +234,8 @@ export default function MailPane({
     to: string,
     subject: string,
     body: string,
-    fromAccount?: string
+    fromAccount?: string,
+    attachments?: OutgoingAttachment[]
   ) => void;
   onToggleStar: (id: string) => void;
   onMarkUnread: (id: string) => void;
@@ -244,6 +251,11 @@ export default function MailPane({
   /** Set when an undone send hands its text back to the composer. */
   restoreDraft: RestoreDraft | null;
   onDraftRestored: () => void;
+  /** Fetch the next page of older mail for this folder. */
+  onLoadMore?: (folder: Folder) => void;
+  loadingMore?: boolean;
+  /** True once the mailbox has no older messages left. */
+  noMoreMail?: boolean;
   snoozeOptions: string[];
 }) {
   const [query, setQuery] = useState("");
@@ -261,6 +273,55 @@ export default function MailPane({
   const [fromAccount, setFromAccount] = useState<string>("");
   // uid of the Drafts copy being edited, so re-saving replaces it
   const [draftUid, setDraftUid] = useState<number | undefined>();
+  const [attached, setAttached] = useState<OutgoingAttachment[]>([]);
+  const [attaching, setAttaching] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  // an attachment opened from a message, shown full screen
+  const [viewing, setViewing] = useState<{
+    name: string;
+    url: string;
+    contentType?: string;
+  } | null>(null);
+
+  const pickFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setAttaching(true);
+    try {
+      const read = await Promise.all(
+        Array.from(files).map(
+          (file) =>
+            new Promise<OutgoingAttachment>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onerror = () => reject(new Error(`Couldn't read ${file.name}`));
+              reader.onload = () =>
+                resolve({
+                  filename: file.name,
+                  contentType: file.type || undefined,
+                  size: file.size,
+                  // strip the "data:...;base64," prefix
+                  data: String(reader.result).split(",")[1] ?? "",
+                });
+              reader.readAsDataURL(file);
+            })
+        )
+      );
+      setAttached((prev) => {
+        const next = [...prev, ...read];
+        const total = next.reduce((n, a) => n + a.size, 0);
+        // most providers reject much beyond this once base64-encoded
+        if (total > MAX_ATTACHMENT_BYTES) {
+          window.alert(
+            "Attachments come to more than 20 MB, which most mail servers reject. Remove one and try again."
+          );
+          return prev;
+        }
+        return next;
+      });
+    } finally {
+      setAttaching(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  };
 
   // an undone send (or a reopened draft) puts its text back in the composer
   useEffect(() => {
@@ -329,9 +390,11 @@ export default function MailPane({
       body.trim(),
       accounts.length
         ? fromAccount || (activeAccount !== "all" ? activeAccount : accounts[0])
-        : undefined
+        : undefined,
+      attached
     );
     setComposing(false);
+    setAttached([]);
     setTo("");
     setSubject("");
     setBody("");
@@ -348,6 +411,7 @@ export default function MailPane({
     if (!to.trim() && !subject.trim() && !body.trim()) return;
     onSaveDraft(to.trim(), subject.trim(), body.trim(), currentAccount());
     setComposing(false);
+    setAttached([]);
     setTo("");
     setSubject("");
     setBody("");
@@ -439,6 +503,31 @@ export default function MailPane({
             placeholder="Write your message…"
             className="nice-scroll min-h-0 flex-1 resize-none bg-transparent px-1 py-2 text-[13.5px] leading-relaxed outline-none placeholder:text-(--color-ink-faint)"
           />
+          {attached.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {attached.map((a, i) => (
+                <span
+                  key={`${a.filename}-${i}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border hairline bg-(--color-paper) px-2.5 py-1.5 text-xs font-medium text-(--color-ink-soft)"
+                >
+                  <ClipIcon className="h-3.5 w-3.5 text-(--color-ink-faint)" />
+                  <span className="max-w-[14rem] truncate">{a.filename}</span>
+                  <span className="text-[10px] text-(--color-ink-faint)">
+                    {Math.max(1, Math.round(a.size / 1024))} KB
+                  </span>
+                  <button
+                    title="Remove attachment"
+                    onClick={() =>
+                      setAttached((prev) => prev.filter((_, j) => j !== i))
+                    }
+                    className="ml-0.5 rounded px-1 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <div className="mt-3 flex items-center gap-2">
             <button
               onClick={submitCompose}
@@ -451,6 +540,22 @@ export default function MailPane({
               className="rounded-lg border hairline px-3.5 py-2 text-[13px] font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
             >
               Save draft
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => pickFiles(e.target.files)}
+            />
+            <button
+              onClick={() => fileInput.current?.click()}
+              disabled={attaching}
+              title="Attach files — any type"
+              aria-label="Attach files"
+              className="ml-auto rounded-lg border hairline p-2 text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay) disabled:opacity-60"
+            >
+              <ClipIcon className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -574,7 +679,16 @@ export default function MailPane({
               </div>
             )}
           </div>
-          <div className="nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pb-3">
+          <div
+            onScroll={(e) => {
+              if (!onLoadMore || loadingMore || noMoreMail) return;
+              const el = e.currentTarget;
+              // start fetching a screenful before the bottom
+              if (el.scrollHeight - el.scrollTop - el.clientHeight < 400)
+                onLoadMore(folder);
+            }}
+            className="nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pb-3"
+          >
             {filtered.map((email) => (
               <div
                 key={email.id}
@@ -736,6 +850,16 @@ export default function MailPane({
                 </div>
               </div>
             ))}
+            {loadingMore && (
+              <p className="py-4 text-center text-[11px] text-(--color-ink-faint)">
+                Loading older mail…
+              </p>
+            )}
+            {noMoreMail && filtered.length > 0 && (
+              <p className="py-4 text-center text-[11px] text-(--color-ink-faint)">
+                That's everything in this folder.
+              </p>
+            )}
             {filtered.length === 0 && (
               <div className="pt-16 text-center text-sm text-(--color-ink-faint)">
                 Nothing in {folders.find((f) => f.key === folder)?.label}.
@@ -860,20 +984,39 @@ export default function MailPane({
 
           {selected.attachments && (
             <div className="mt-4 flex flex-wrap gap-2">
-              {selected.attachments.map((a) => (
-                <span
-                  key={a.name}
-                  className="inline-flex items-center gap-1.5 rounded-lg border hairline bg-(--color-paper) px-2.5 py-1.5 text-xs font-medium text-(--color-ink-soft)"
-                >
-                  <ClipIcon className="h-3.5 w-3.5 text-(--color-ink-faint)" />
-                  {a.name}
-                  {a.size && (
-                    <span className="text-[10px] text-(--color-ink-faint)">
-                      {a.size}
-                    </span>
-                  )}
-                </span>
-              ))}
+              {selected.attachments.map((a) => {
+                // live mail carries the part id, which is what lets us fetch it
+                const openable = Boolean(a.part && selected.uid);
+                const url = openable
+                  ? `/api/mail/attachment?role=${selected.folder}&uid=${selected.uid}&part=${encodeURIComponent(
+                      a.part!
+                    )}${
+                      selected.accountId
+                        ? `&account=${encodeURIComponent(selected.accountId)}`
+                        : ""
+                    }`
+                  : "";
+                return (
+                  <button
+                    key={a.name}
+                    disabled={!openable}
+                    title={openable ? `Open ${a.name}` : a.name}
+                    onClick={() =>
+                      openable &&
+                      setViewing({ name: a.name, url, contentType: a.contentType })
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg border hairline bg-(--color-paper) px-2.5 py-1.5 text-xs font-medium text-(--color-ink-soft) transition-colors enabled:hover:border-(--color-clay)/50 enabled:hover:text-(--color-clay) disabled:cursor-default"
+                  >
+                    <ClipIcon className="h-3.5 w-3.5 text-(--color-ink-faint)" />
+                    {a.name}
+                    {a.size && (
+                      <span className="text-[10px] text-(--color-ink-faint)">
+                        {a.size}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -956,6 +1099,74 @@ export default function MailPane({
               Reply to {selected.from.name.split(" ")[0]}…
             </button>
           )}
+        </div>
+      )}
+
+      {/* Attachment viewer — images and PDFs render, anything else downloads */}
+      {viewing && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-black/85 p-4"
+          onClick={() => setViewing(null)}
+        >
+          <div className="mb-3 flex shrink-0 items-center gap-3">
+            <ClipIcon className="h-4 w-4 shrink-0 text-white/60" />
+            <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-white">
+              {viewing.name}
+            </p>
+            <a
+              href={viewing.url}
+              download={viewing.name}
+              onClick={(e) => e.stopPropagation()}
+              className="shrink-0 rounded-lg border border-white/20 px-3 py-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              Download
+            </a>
+            <button
+              onClick={() => setViewing(null)}
+              aria-label="Close attachment"
+              className="shrink-0 rounded-lg border border-white/20 px-3 py-1.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="min-h-0 flex-1 overflow-auto rounded-xl bg-white"
+          >
+            {/^image\//i.test(viewing.contentType ?? "") ||
+            /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(viewing.name) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={viewing.url}
+                alt={viewing.name}
+                className="mx-auto max-h-full max-w-full object-contain"
+              />
+            ) : /pdf/i.test(viewing.contentType ?? "") ||
+              /\.pdf$/i.test(viewing.name) ? (
+              <iframe
+                src={viewing.url}
+                title={viewing.name}
+                className="h-full w-full"
+              />
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+                <ClipIcon className="h-6 w-6 text-(--color-ink-faint)" />
+                <p className="text-sm font-medium">
+                  This file type can&apos;t be previewed in the browser.
+                </p>
+                <p className="text-xs text-(--color-ink-faint)">
+                  Word documents and other formats open in their own app.
+                </p>
+                <a
+                  href={viewing.url}
+                  download={viewing.name}
+                  className="mt-1 rounded-lg bg-(--color-clay) px-4 py-2 text-[13px] font-semibold text-white"
+                >
+                  Download {viewing.name}
+                </a>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </section>

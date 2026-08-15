@@ -18,6 +18,7 @@ import {
   apiMessages,
   apiSavedAccountDelete,
   apiSavedAccountSave,
+  apiSavedAccountLabel,
   apiAsk,
   apiSmartTask,
   apiSavedAccounts,
@@ -38,6 +39,7 @@ import {
   Email,
   Folder,
   Message,
+  OutgoingAttachment,
   Settings,
   Task,
   TaskStatus,
@@ -170,6 +172,10 @@ export default function Home() {
   );
   const [restoreDraft, setRestoreDraft] = useState<RestoreDraft | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // folders whose mailbox has no older messages left
+  const [exhausted, setExhausted] = useState<Set<Folder>>(new Set());
+  const [mailFolder, setMailFolder] = useState<Folder>("inbox");
 
   // Restore live mail on load: first from the in-memory session (cookie survives
   // reloads), otherwise reconnect saved logins that were live last time.
@@ -624,6 +630,37 @@ export default function Home() {
     }
   };
 
+  /** Page back through the mailbox as the list scrolls. */
+  const loadMore = async (folder: Folder) => {
+    if (!live || loadingMore || exhausted.has(folder)) return;
+    setLoadingMore(true);
+    try {
+      const offset = emails.filter((e) => e.folder === folder).length;
+      const older = await apiMessages(folder, settings.timezone, "all", offset);
+      if (older.length === 0) {
+        setExhausted((prev) => new Set(prev).add(folder));
+      } else {
+        setEmails((prev) => {
+          const seen = new Set(prev.map((e) => e.id));
+          return [...prev, ...older.filter((e) => !seen.has(e.id))];
+        });
+      }
+    } catch (err) {
+      showToast(String(err instanceof Error ? err.message : err));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const renameAccount = async (account: SavedAccountInfo, label: string) => {
+    try {
+      const res = await apiSavedAccountLabel(account, label);
+      setSavedAccounts(res.accounts);
+    } catch (err) {
+      showToast(String(err instanceof Error ? err.message : err));
+    }
+  };
+
   const refreshFolder = async (folder: Folder) => {
     if (!live) return;
     setRefreshing(true);
@@ -710,12 +747,13 @@ export default function Home() {
     to: string,
     subject: string,
     body: string,
-    fromAccount?: string
+    fromAccount?: string,
+    attachments?: OutgoingAttachment[]
   ) => {
     holdSend(
       `Sending to ${to}`,
       { kind: "compose", to, subject, body, fromAccount },
-      () => dispatchNewEmail(to, subject, body, fromAccount)
+      () => dispatchNewEmail(to, subject, body, fromAccount, attachments)
     );
   };
 
@@ -723,14 +761,15 @@ export default function Home() {
     to: string,
     subject: string,
     body: string,
-    fromAccount?: string
+    fromAccount?: string,
+    attachments?: OutgoingAttachment[]
   ) => {
     const withSig = settings.signature
       ? `${body}\n\n${settings.signature}`
       : body;
     const account = fromAccount ?? liveAccounts[0] ?? settings.email;
     if (live) {
-      apiSend({ to, subject, text: withSig, account }).catch((err) =>
+      apiSend({ to, subject, text: withSig, account, attachments }).catch((err) =>
         showToast(String(err.message ?? err))
       );
     }
@@ -745,6 +784,10 @@ export default function Home() {
       time: nowTime(),
       read: true,
       folder: "sent",
+      attachments: attachments?.map((a) => ({
+        name: a.filename,
+        size: `${Math.max(1, Math.round(a.size / 1024))} KB`,
+      })),
     };
     setEmails((prev) => [sent, ...prev]);
     showToast(`Sent to ${to}`);
@@ -955,7 +998,10 @@ export default function Home() {
           onComposeSend={sendNewEmail}
           onToggleStar={toggleStar}
           onMarkUnread={markUnread}
-          onFolderChange={loadFolder}
+          onFolderChange={(f) => {
+            setMailFolder(f);
+            loadFolder(f);
+          }}
           accountLabels={Object.fromEntries(
             savedAccounts.filter((a) => a.label).map((a) => [a.email, a.label!])
           )}
@@ -964,6 +1010,9 @@ export default function Home() {
           refreshing={refreshing}
           restoreDraft={restoreDraft}
           onDraftRestored={() => setRestoreDraft(null)}
+          onLoadMore={loadMore}
+          loadingMore={loadingMore}
+          noMoreMail={exhausted.has(mailFolder)}
           snoozeOptions={[
             settings.snoozeTimes.laterToday,
             settings.snoozeTimes.tomorrow,
@@ -1176,6 +1225,7 @@ export default function Home() {
           onDisconnect={disconnectAccount}
           onSaveAccount={saveAccountToServer}
           onDeleteSavedAccount={deleteSavedAccount}
+          onRenameAccount={renameAccount}
           onClose={() => setSettingsOpen(false)}
         />
       )}
