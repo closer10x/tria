@@ -108,14 +108,22 @@ export async function POST(req: NextRequest) {
   // accounts own their tokens already; only mark them connected.
   if (cryptoReady) {
     const id = cfg.user;
-    const existing = creds.accounts.find((a) => a.id === id);
+    // Re-read immediately before writing. The snapshot taken at the top of
+    // this request is now seconds stale — the IMAP verification above is slow
+    // — and saving it would clobber anything an OAuth callback or a
+    // saved-accounts edit persisted in the meantime.
+    const fresh = await loadCreds();
+    const existing = fresh.accounts.find((a) => a.id === id);
     if (!cfg.oauthAccountId) {
       // when the connection came from a saved account, its own provider wins
       // over whatever preset the form happened to be showing
       const usedStored = !body.pass;
-      creds.accounts = [
-        ...creds.accounts.filter((a) => a.id !== id),
+      fresh.accounts = [
+        ...fresh.accounts.filter((a) => a.id !== id),
         {
+          // carry the stored record forward — rebuilding it from scratch drops
+          // fields this route doesn't know about (the account's custom label)
+          ...existing,
           id,
           email: id,
           provider: usedStored
@@ -133,10 +141,10 @@ export async function POST(req: NextRequest) {
         },
       ];
     }
-    if (!creds.connectedAccountIds.includes(id)) {
-      creds.connectedAccountIds = [...creds.connectedAccountIds, id];
+    if (!fresh.connectedAccountIds.includes(id)) {
+      fresh.connectedAccountIds = [...fresh.connectedAccountIds, id];
     }
-    await saveCreds(creds);
+    await saveCreds(fresh);
   }
 
   // add to the existing session (multi-account) or start a new one
