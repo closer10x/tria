@@ -69,10 +69,23 @@ function readKey(name: "ANTHROPIC_API_KEY" | "OPENROUTER_API_KEY"): string | nul
   if (!raw) return null;
   let key = raw.trim();
   if (key.length > 1 && /^(["'])[\s\S]*\1$/.test(key)) key = key.slice(1, -1);
-  key = key.replace(/^Bearer\s+/i, "").replace(/\s+/g, "");
+  key = key.replace(/^Bearer\s+/i, "");
+  // Keep printable ASCII only. Provider keys are [A-Za-z0-9-_], so this is
+  // lossless for a real key and removes the characters a paste out of a
+  // browser or a chat window carries invisibly: a zero-width space (U+200B,
+  // which JS \s does NOT match), a BOM, a non-breaking space, a smart quote.
+  // One of those in the value is why a provider can answer "Missing
+  // Authentication header" for a key that looks perfect in the dashboard.
+  key = key.replace(/[^\x21-\x7e]/g, "");
   // a value of "" or " " is a placeholder, not a configured provider
   return key || null;
 }
+
+/** What a provider's keys look like, for a format check that names no secret. */
+const KEY_PREFIX: Record<LlmProvider, string> = {
+  anthropic: "sk-ant-",
+  openrouter: "sk-or-",
+};
 
 /** Providers with a usable key, in preference order. */
 export function llmProviders(): LlmProvider[] {
@@ -239,9 +252,26 @@ export type KeyCheck = {
   configured: boolean;
   /** The provider accepted the key. Null when there is no key to check. */
   ok: boolean | null;
+  /** The value carries the provider's key prefix — a wrong var, a pasted
+   *  fragment or a placeholder fails this without revealing anything: every
+   *  key of a given provider starts with the same public prefix. */
+  looksLikeKey?: boolean;
+  /** The raw env value needed cleaning (quotes, "Bearer ", invisible
+   *  characters). True here with ok false means the value is damaged enough
+   *  that re-pasting it is the fix. */
+  cleaned?: boolean;
   status?: number;
   error?: string;
 };
+
+/** Describe a configured key without disclosing any of it. */
+function describeKey(provider: LlmProvider, key: string): Pick<KeyCheck, "looksLikeKey" | "cleaned"> {
+  const envName = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENROUTER_API_KEY";
+  return {
+    looksLikeKey: key.startsWith(KEY_PREFIX[provider]),
+    cleaned: (process.env[envName] ?? "") !== key,
+  };
+}
 
 /**
  * Ask each provider whether the deployed key authenticates.
@@ -259,15 +289,17 @@ export async function checkKeys(): Promise<KeyCheck[]> {
   if (!anthropicKey) {
     checks.push({ provider: "anthropic", configured: false, ok: null });
   } else {
+    const shape = describeKey("anthropic", anthropicKey);
     try {
       await new Anthropic({ apiKey: anthropicKey }).models.list({ limit: 1 });
-      checks.push({ provider: "anthropic", configured: true, ok: true });
+      checks.push({ provider: "anthropic", configured: true, ok: true, ...shape });
     } catch (e) {
       const err = e as { status?: number; message?: string };
       checks.push({
         provider: "anthropic",
         configured: true,
         ok: false,
+        ...shape,
         status: err.status,
         error:
           err.status === 401
@@ -281,17 +313,19 @@ export async function checkKeys(): Promise<KeyCheck[]> {
   if (!openRouterKey) {
     checks.push({ provider: "openrouter", configured: false, ok: null });
   } else {
+    const shape = describeKey("openrouter", openRouterKey);
     try {
       const res = await fetch("https://openrouter.ai/api/v1/key", {
         headers: { Authorization: `Bearer ${openRouterKey}` },
       });
       if (res.ok) {
-        checks.push({ provider: "openrouter", configured: true, ok: true });
+        checks.push({ provider: "openrouter", configured: true, ok: true, ...shape });
       } else {
         checks.push({
           provider: "openrouter",
           configured: true,
           ok: false,
+          ...shape,
           status: res.status,
           error: openRouterError(res.status, await res.text().catch(() => "")),
         });
@@ -301,6 +335,7 @@ export async function checkKeys(): Promise<KeyCheck[]> {
         provider: "openrouter",
         configured: true,
         ok: false,
+        ...shape,
         error: e instanceof Error ? e.message : "OpenRouter key check failed.",
       });
     }
