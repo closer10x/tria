@@ -39,6 +39,7 @@ export default function ChatPane({
   onBack,
   onSend,
   onSetPending,
+  onTyping,
 }: {
   threads: Thread[];
   emails: Email[];
@@ -50,6 +51,8 @@ export default function ChatPane({
   onBack: () => void;
   onSend: (text: string) => void;
   onSetPending: (a: Attachment | null) => void;
+  /** Called while the user types — feeds the realtime typing indicator. */
+  onTyping?: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
@@ -263,7 +266,10 @@ export default function ChatPane({
               </button>
               <input
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  if (e.target.value.trim()) onTyping?.();
+                }}
                 onKeyDown={(e) => e.key === "Enter" && send()}
                 placeholder={`Message ${active.name}…`}
                 className="min-w-0 flex-1 rounded-xl border hairline bg-white px-3.5 py-2 text-sm outline-none placeholder:text-(--color-ink-faint) focus:border-(--color-clay)/40"

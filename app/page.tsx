@@ -34,6 +34,7 @@ import {
   syncThreads,
 } from "@/lib/persist";
 import { clearMailCache, loadMailCache, saveMailCache } from "@/lib/mailCache";
+import { mergeThread, subscribeThreads, ThreadsRealtime } from "@/lib/realtime";
 import {
   AiMessage,
   Attachment,
@@ -139,9 +140,22 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [tasks, synced]);
 
+  // Threads sync writes only what actually changed locally: the realtime
+  // subscription marks remote-received state as already-synced (see
+  // lastThreadSyncRef), so adopting another client's message doesn't get
+  // written straight back and ping-pong events between clients.
+  const lastThreadSyncRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     if (!synced) return;
-    const t = setTimeout(() => syncThreads(threads), 500);
+    const t = setTimeout(() => {
+      const changed = threads.filter(
+        (th) => lastThreadSyncRef.current.get(th.id) !== JSON.stringify(th)
+      );
+      if (changed.length === 0) return;
+      for (const th of changed)
+        lastThreadSyncRef.current.set(th.id, JSON.stringify(th));
+      syncThreads(changed);
+    }, 500);
     return () => clearTimeout(t);
   }, [threads, synced]);
 
@@ -218,6 +232,59 @@ export default function Home() {
         .catch(() => {});
     })();
   }, []);
+
+  // Live thread sync: other devices' messages appear as they land, and
+  // typing indicators travel over the same channel.
+  const realtimeRef = useRef<ThreadsRealtime | null>(null);
+  const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settingsNameRef = useRef(settings.name);
+  useEffect(() => {
+    settingsNameRef.current = settings.name;
+  }, [settings.name]);
+
+  useEffect(() => {
+    if (!synced) return; // wait for hydration so merges start from real state
+    const sub = subscribeThreads({
+      onUpsert: (incoming) =>
+        setThreads((prev) => {
+          const local = prev.find((t) => t.id === incoming.id);
+          const merged = mergeThread(local, incoming);
+          const mergedJson = JSON.stringify(merged);
+          // nothing local on top of what remote sent → this state is theirs;
+          // mark it synced so the debounced writer doesn't echo it back
+          // (ref write is idempotent, safe under StrictMode double-invoke)
+          if (mergedJson === JSON.stringify(incoming))
+            lastThreadSyncRef.current.set(incoming.id, mergedJson);
+          if (local && JSON.stringify(local) === mergedJson) return prev;
+          return local
+            ? prev.map((t) => (t.id === incoming.id ? merged : t))
+            : [...prev, merged];
+        }),
+      onDelete: (id) =>
+        setThreads((prev) => prev.filter((t) => t.id !== id)),
+      onTyping: (threadId) => {
+        setTypingIn(threadId);
+        if (typingClearRef.current) clearTimeout(typingClearRef.current);
+        typingClearRef.current = setTimeout(() => setTypingIn(null), 3000);
+      },
+      selfAuthor: () => settingsNameRef.current,
+    });
+    realtimeRef.current = sub;
+    return () => {
+      realtimeRef.current = null;
+      sub?.unsubscribe();
+    };
+  }, [synced]);
+
+  // announce typing at most every couple of seconds
+  const lastTypingSentRef = useRef(0);
+  const broadcastTyping = useCallback(() => {
+    if (!activeThreadId || !realtimeRef.current) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = now;
+    realtimeRef.current.sendTyping(activeThreadId, settingsNameRef.current);
+  }, [activeThreadId]);
 
   // keep the offline mail cache in step with whatever is on screen
   useEffect(() => {
@@ -1152,6 +1219,7 @@ export default function Home() {
                 onBack={() => setActiveThreadId(null)}
                 onSend={sendMessage}
                 onSetPending={setPendingAttachment}
+                onTyping={broadcastTyping}
               />
             ) : (
               <AiPane
