@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, getAccounts, sessions } from "@/lib/mail/store";
 import { resolveAccountIds } from "@/lib/mail/resolve";
-import { loadCreds, saveCreds } from "@/lib/server/creds";
+import { setConnected } from "@/lib/server/creds";
 
 /** List connected accounts — from this instance's session or the credential store. */
 export async function GET(req: NextRequest) {
@@ -19,18 +19,18 @@ export async function DELETE(req: NextRequest) {
     else accounts.clear();
     if (accounts.size === 0 && token) sessions.delete(token);
   }
-  // a deliberate disconnect also opts the account out of auto-restore
+  // A deliberate disconnect also opts the account out of auto-restore.
+  // setConnected touches only the one id, so a concurrent writer on this
+  // shared row can't be reverted by a stale whole-document save.
   try {
-    const creds = await loadCreds();
-    const remaining = account
-      ? creds.connectedAccountIds.filter((x) => x !== account)
-      : [];
-    if (remaining.length !== creds.connectedAccountIds.length) {
-      creds.connectedAccountIds = remaining;
-      await saveCreds(creds);
-    }
+    const ids = account ? [account] : await resolveAccountIds(token);
+    for (const id of ids) await setConnected(id, false);
   } catch {
     // non-fatal: session disconnect still succeeded
   }
-  return NextResponse.json({ ok: true, accounts: Array.from(accounts?.keys() ?? []) });
+  // Report what is still connected from the credential store, not from this
+  // instance's session map. The map lives in globalThis, so a cold serverless
+  // instance has an empty one — returning that told the client every account
+  // had gone, and it cleared the whole mailbox for a single disconnect.
+  return NextResponse.json({ ok: true, accounts: await resolveAccountIds(token) });
 }

@@ -120,11 +120,23 @@ function hueOf(key: string): string {
   return HUES[h % HUES.length];
 }
 
+/** Calendar day as seen in `tz` — "2026-08-15". en-CA gives ISO ordering. */
+const dayIn = (d: Date, tz?: string) =>
+  d.toLocaleDateString("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
 export function formatTime(d: Date | undefined, tz?: string): string {
   if (!d) return "";
-  const now = new Date();
   const opts: Intl.DateTimeFormatOptions = { timeZone: tz };
-  const sameDay = d.toDateString() === now.toDateString();
+  // "Is this today?" has to be asked in the reader's timezone. Comparing
+  // toDateString() asked it in the server's — UTC in production — so for the
+  // hours either side of local midnight a message from today was labelled
+  // with a date, or yesterday's was labelled with a time.
+  const sameDay = dayIn(d, tz) === dayIn(new Date(), tz);
   if (sameDay)
     return d.toLocaleTimeString([], {
       ...opts,

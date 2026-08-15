@@ -3,23 +3,14 @@ import { COOKIE } from "@/lib/mail/store";
 import { resolveAccount } from "@/lib/mail/resolve";
 import { resolveRole, Role, withImap } from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
-
-type Action =
-  | "read"
-  | "unread"
-  | "star"
-  | "unstar"
-  | "archive"
-  | "trash"
-  | "inbox"
-  | "snooze";
+import { MailAction } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
   const { role, uid, action, account } = (await req.json()) as {
     role: Role;
     uid: number;
-    action: Action;
+    action: MailAction;
     account?: string;
   };
   const cfg = await resolveAccount(token, account);
