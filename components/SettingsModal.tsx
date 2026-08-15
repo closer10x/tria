@@ -5,6 +5,7 @@ import { Provider, Settings } from "@/lib/types";
 import { SavedAccountInfo } from "@/lib/mailApi";
 import { GoogleIcon, MicrosoftIcon, ProviderIcon } from "./brandIcons";
 import { GearIcon } from "./ui";
+import AiKeySettings from "./AiKeySettings";
 
 const providerPresets: Record<
   Provider,
@@ -188,7 +189,7 @@ export default function SettingsModal({
 }) {
   const connected = connectedAccounts.length > 0;
   const currentConnected = connectedAccounts.includes(settings.email);
-  const [tab, setTab] = useState<"profile" | "account" | "prefs">("account");
+  const [tab, setTab] = useState<"profile" | "account" | "ai" | "prefs">("account");
   // 0 = accounts home; 1–3 = the add-account wizard
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -278,6 +279,7 @@ export default function SettingsModal({
             [
               ["profile", "Profile"],
               ["account", "Email Account"],
+              ["ai", "AI"],
               ["prefs", "Preferences"],
             ] as const
           ).map(([key, label]) => (
@@ -801,6 +803,8 @@ export default function SettingsModal({
               )}
             </>
           )}
+
+          {tab === "ai" && <AiKeySettings />}
 
           {tab === "prefs" && (
             <>

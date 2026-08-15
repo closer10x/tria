@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { loadAiKeys } from "@/lib/server/aiKeys";
 
 /**
  * One door to the LLM for every /api/ai route.
@@ -64,8 +65,7 @@ export type LlmProvider = "anthropic" | "openrouter";
  * and turns each of those into a working deploy instead of a 401 nobody can
  * see the cause of.
  */
-function readKey(name: "ANTHROPIC_API_KEY" | "OPENROUTER_API_KEY"): string | null {
-  const raw = process.env[name];
+export function normalizeKey(raw: string | undefined | null): string | null {
   if (!raw) return null;
   let key = raw.trim();
   if (key.length > 1 && /^(["'])[\s\S]*\1$/.test(key)) key = key.slice(1, -1);
@@ -82,21 +82,63 @@ function readKey(name: "ANTHROPIC_API_KEY" | "OPENROUTER_API_KEY"): string | nul
 }
 
 /** What a provider's keys look like, for a format check that names no secret. */
-const KEY_PREFIX: Record<LlmProvider, string> = {
+export const KEY_PREFIX: Record<LlmProvider, string> = {
   anthropic: "sk-ant-",
   openrouter: "sk-or-",
 };
 
-/** Providers with a usable key, in preference order. */
-export function llmProviders(): LlmProvider[] {
-  const providers: LlmProvider[] = [];
-  if (readKey("ANTHROPIC_API_KEY")) providers.push("anthropic");
-  if (readKey("OPENROUTER_API_KEY")) providers.push("openrouter");
-  return providers;
+const ENV_NAME: Record<LlmProvider, "ANTHROPIC_API_KEY" | "OPENROUTER_API_KEY"> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+};
+
+export type ResolvedKey = {
+  key: string;
+  /** Where it came from, so the UI can say which one is actually in play. */
+  source: "stored" | "env";
+};
+
+export type ResolvedKeys = Partial<Record<LlmProvider, ResolvedKey>>;
+
+/**
+ * The key each provider will actually be called with.
+ *
+ * A key stored in the app wins over the environment variable. That order is
+ * the point of the store: when the deployed env var is wrong, the fix has to
+ * be reachable without a redeploy, and a value someone just entered and had
+ * verified is newer evidence than one baked into the build.
+ *
+ * A store that cannot be read falls through to the env vars rather than
+ * taking the AI down with it.
+ */
+export async function resolveKeys(): Promise<ResolvedKeys> {
+  let stored: Partial<Record<LlmProvider, string>> = {};
+  try {
+    stored = await loadAiKeys();
+  } catch (e) {
+    console.error("llm: stored provider keys unreadable, using env", e);
+  }
+  const out: ResolvedKeys = {};
+  for (const provider of ["anthropic", "openrouter"] as LlmProvider[]) {
+    const fromStore = normalizeKey(stored[provider]);
+    if (fromStore) {
+      out[provider] = { key: fromStore, source: "stored" };
+      continue;
+    }
+    const fromEnv = normalizeKey(process.env[ENV_NAME[provider]]);
+    if (fromEnv) out[provider] = { key: fromEnv, source: "env" };
+  }
+  return out;
 }
 
-export function llmProvider(): LlmProvider | null {
-  return llmProviders()[0] ?? null;
+/** Providers with a usable key, in preference order. */
+export async function llmProviders(): Promise<LlmProvider[]> {
+  const keys = await resolveKeys();
+  return (["anthropic", "openrouter"] as LlmProvider[]).filter((p) => keys[p]);
+}
+
+export async function llmProvider(): Promise<LlmProvider | null> {
+  return (await llmProviders())[0] ?? null;
 }
 
 /** Error message for 503s when no provider is configured. */
@@ -121,8 +163,8 @@ export function briefLlmError(e: unknown): string {
   return "The AI request didn't go through.";
 }
 
-async function chatAnthropic(req: LlmRequest): Promise<string> {
-  const client = new Anthropic({ apiKey: readKey("ANTHROPIC_API_KEY")! });
+async function chatAnthropic(req: LlmRequest, apiKey: string): Promise<string> {
+  const client = new Anthropic({ apiKey });
   const response = await client.messages.create({
     model: "claude-opus-5",
     max_tokens: req.maxTokens,
@@ -154,11 +196,11 @@ function stripFences(text: string): string {
   return m ? m[1] : text.trim();
 }
 
-function orFetch(payload: Record<string, unknown>): Promise<Response> {
+function orFetch(payload: Record<string, unknown>, apiKey: string): Promise<Response> {
   return fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${readKey("OPENROUTER_API_KEY")}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://tria-rho.vercel.app",
       "X-Title": "Tria",
@@ -167,7 +209,11 @@ function orFetch(payload: Record<string, unknown>): Promise<Response> {
   });
 }
 
-async function attemptOpenRouter(model: string, req: LlmRequest): Promise<string> {
+async function attemptOpenRouter(
+  model: string,
+  req: LlmRequest,
+  apiKey: string
+): Promise<string> {
   const system = req.schema
     ? `${req.system}\n\nRespond with ONLY a JSON document matching this JSON Schema — no prose, no code fences:\n${JSON.stringify(req.schema)}`
     : req.system;
@@ -189,13 +235,13 @@ async function attemptOpenRouter(model: string, req: LlmRequest): Promise<string
         }
       : {}),
   };
-  let res = await orFetch(body);
+  let res = await orFetch(body, apiKey);
   // some models reject response_format outright — retry on prompt alone
   if (!res.ok && req.schema && res.status >= 400 && res.status < 500) {
     const errText = await res.text().catch(() => "");
     if (/response_format|json_schema|structured/i.test(errText)) {
       const { response_format: _rf, ...withoutFormat } = body as Record<string, unknown>;
-      res = await orFetch(withoutFormat);
+      res = await orFetch(withoutFormat, apiKey);
     } else {
       throw Object.assign(new Error(openRouterError(res.status, errText)), {
         status: res.status,
@@ -228,11 +274,11 @@ async function attemptOpenRouter(model: string, req: LlmRequest): Promise<string
 /** Statuses worth trying the next model in the chain for. */
 const FALLTHROUGH_STATUSES = new Set([402, 404, 408, 429, 500, 502, 503, 504]);
 
-async function chatOpenRouter(req: LlmRequest): Promise<string> {
+async function chatOpenRouter(req: LlmRequest, apiKey: string): Promise<string> {
   let lastErr: unknown;
   for (const model of modelChain()) {
     try {
-      return await attemptOpenRouter(model, req);
+      return await attemptOpenRouter(model, req, apiKey);
     } catch (e) {
       if (e instanceof LlmRefusal) throw e;
       const status = (e as { status?: number }).status;
@@ -278,85 +324,101 @@ export type KeyCheck = {
    *  characters). True here with ok false means the value is damaged enough
    *  that re-pasting it is the fix. */
   cleaned?: boolean;
+  /** Whether the key in play was entered in the app or baked into the build. */
+  source?: "stored" | "env";
   status?: number;
   error?: string;
 };
 
-/** Describe a configured key without disclosing any of it. */
-function describeKey(provider: LlmProvider, key: string): Pick<KeyCheck, "looksLikeKey" | "cleaned"> {
+/** Describe a key without disclosing any of it. */
+function describeKey(provider: LlmProvider, resolved: ResolvedKey): Pick<KeyCheck, "looksLikeKey" | "cleaned" | "source"> {
   const envName = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENROUTER_API_KEY";
   return {
-    looksLikeKey: key.startsWith(KEY_PREFIX[provider]),
-    cleaned: (process.env[envName] ?? "") !== key,
+    looksLikeKey: resolved.key.startsWith(KEY_PREFIX[provider]),
+    // only meaningful for an env value; a stored key was normalised on entry
+    cleaned:
+      resolved.source === "env" && (process.env[envName] ?? "") !== resolved.key,
+    source: resolved.source,
   };
 }
 
 /**
- * Ask each provider whether the deployed key authenticates.
+ * Does this key authenticate? Free, auth-only, buys no completion.
  *
- * Both checks are free auth-only endpoints — no completion is bought — so
- * this is safe to call after every deploy. It deliberately reports nothing
- * about the key itself: not its value, length, or edge characters, only
- * whether the provider accepts it. (A previous health endpoint leaked secret
- * shape and had to be pulled; this one is the same idea without the leak.)
+ * Used both by the health check and by the route that saves a key, so a key
+ * that would not work cannot be stored in the first place.
  */
-export async function checkKeys(): Promise<KeyCheck[]> {
-  const checks: KeyCheck[] = [];
-
-  const anthropicKey = readKey("ANTHROPIC_API_KEY");
-  if (!anthropicKey) {
-    checks.push({ provider: "anthropic", configured: false, ok: null });
-  } else {
-    const shape = describeKey("anthropic", anthropicKey);
+export async function verifyKey(
+  provider: LlmProvider,
+  key: string
+): Promise<{ ok: true } | { ok: false; status?: number; error: string }> {
+  if (provider === "anthropic") {
     try {
-      await new Anthropic({ apiKey: anthropicKey }).models.list({ limit: 1 });
-      checks.push({ provider: "anthropic", configured: true, ok: true, ...shape });
+      await new Anthropic({ apiKey: key }).models.list({ limit: 1 });
+      return { ok: true };
     } catch (e) {
       const err = e as { status?: number; message?: string };
-      checks.push({
-        provider: "anthropic",
-        configured: true,
+      return {
         ok: false,
-        ...shape,
         status: err.status,
         error:
           err.status === 401
-            ? "Anthropic rejected the API key — check ANTHROPIC_API_KEY, then redeploy."
+            ? "Anthropic rejected this key."
             : (err.message ?? "Anthropic key check failed."),
-      });
+      };
     }
   }
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/key", {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (res.ok) return { ok: true };
+    return {
+      ok: false,
+      status: res.status,
+      error: openRouterError(res.status, await res.text().catch(() => "")),
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "OpenRouter key check failed.",
+    };
+  }
+}
 
-  const openRouterKey = readKey("OPENROUTER_API_KEY");
-  if (!openRouterKey) {
-    checks.push({ provider: "openrouter", configured: false, ok: null });
-  } else {
-    const shape = describeKey("openrouter", openRouterKey);
-    try {
-      const res = await fetch("https://openrouter.ai/api/v1/key", {
-        headers: { Authorization: `Bearer ${openRouterKey}` },
-      });
-      if (res.ok) {
-        checks.push({ provider: "openrouter", configured: true, ok: true, ...shape });
-      } else {
-        checks.push({
-          provider: "openrouter",
-          configured: true,
-          ok: false,
-          ...shape,
-          status: res.status,
-          error: openRouterError(res.status, await res.text().catch(() => "")),
-        });
-      }
-    } catch (e) {
-      checks.push({
-        provider: "openrouter",
-        configured: true,
-        ok: false,
-        ...shape,
-        error: e instanceof Error ? e.message : "OpenRouter key check failed.",
-      });
+/**
+ * Ask each provider whether the key it would actually be called with works.
+ *
+ * Safe to call after every deploy: both checks are free auth-only endpoints,
+ * no completion is bought. It deliberately reports nothing about the key
+ * itself — not its value, length, or edge characters, only whether the
+ * provider accepts it. (A previous health endpoint leaked secret shape and
+ * had to be pulled; this one is the same idea without the leak.)
+ */
+export async function checkKeys(): Promise<KeyCheck[]> {
+  const resolved = await resolveKeys();
+  const checks: KeyCheck[] = [];
+
+  for (const provider of ["anthropic", "openrouter"] as LlmProvider[]) {
+    const entry = resolved[provider];
+    if (!entry) {
+      checks.push({ provider, configured: false, ok: null });
+      continue;
     }
+    const shape = describeKey(provider, entry);
+    const result = await verifyKey(provider, entry.key);
+    checks.push(
+      result.ok
+        ? { provider, configured: true, ok: true, ...shape }
+        : {
+            provider,
+            configured: true,
+            ok: false,
+            ...shape,
+            status: result.status,
+            error: result.error,
+          }
+    );
   }
 
   return checks;
@@ -373,16 +435,20 @@ export async function checkKeys(): Promise<KeyCheck[]> {
  * never revisited.
  */
 export async function llmChat(req: LlmRequest): Promise<string> {
-  const providers = llmProviders();
+  const keys = await resolveKeys();
+  const providers = (["anthropic", "openrouter"] as LlmProvider[]).filter(
+    (p) => keys[p]
+  );
   if (!providers.length)
     throw Object.assign(new Error(NO_PROVIDER_MSG), { status: 503 });
 
   let lastErr: unknown;
   for (const provider of providers) {
+    const apiKey = keys[provider]!.key;
     try {
       return provider === "anthropic"
-        ? await chatAnthropic(req)
-        : await chatOpenRouter(req);
+        ? await chatAnthropic(req, apiKey)
+        : await chatOpenRouter(req, apiKey);
     } catch (e) {
       // a refusal is an answer, not an outage — asking the other provider
       // the same question would only burn a second call

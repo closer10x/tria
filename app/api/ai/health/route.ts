@@ -25,11 +25,11 @@ export async function GET() {
     {
       ok,
       /** The provider AI requests go to first. */
-      provider: llmProvider(),
+      provider: await llmProvider(),
       providers: checks,
       hint: ok
         ? undefined
-        : "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY for the Production environment in Vercel → Settings → Environment Variables, then redeploy — env changes only reach a new build.",
+        : "Paste a working key in Settings → AI provider — it is verified before it is saved and takes effect immediately, with no redeploy. (The ANTHROPIC_API_KEY / OPENROUTER_API_KEY environment variables still work, but only reach a new build.)",
     },
     // 200 when at least one provider answers; 503 when the AI is down, so a
     // uptime check can watch this URL without parsing the body

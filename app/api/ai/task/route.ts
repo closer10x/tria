@@ -63,7 +63,7 @@ export type SmartTaskDraft = {
 };
 
 export async function POST(req: NextRequest) {
-  if (!llmProvider()) {
+  if (!(await llmProvider())) {
     console.error(NO_PROVIDER_MSG);
     return NextResponse.json(
       { ok: false, error: briefLlmError({ status: 503 }) },

@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
 
-  if (!llmProvider())
+  if (!(await llmProvider()))
     // degrade rather than fail: a dumb split still beats losing the dump
     return NextResponse.json({
       ok: true,

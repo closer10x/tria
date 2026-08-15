@@ -77,10 +77,21 @@ newer commit can lose the alias and take the routes down.
 
 ## AI provider
 
-The `/api/ai` routes take the first key that works: `ANTHROPIC_API_KEY`
-(native Claude API), then `OPENROUTER_API_KEY`. Both are tried per request —
-a key one provider rejects falls through to the other instead of taking every
-AI feature down, so setting both is the cheapest insurance against a dead key.
+**Settings → AI** is the place to put the key. Paste it, and the server
+authenticates it against the provider *before* storing it — so you find out on
+the spot whether it works, a key that doesn't never lands, and it takes effect
+on the next request with no redeploy. Keys are AES-256-GCM ciphertext in row 2
+of the RLS-locked `credentials` table, bound to their provider, and are never
+sent back to the browser.
+
+The `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` env vars still work and are the
+fallback. A key stored in the app wins over them: when the deployed env value
+is wrong, the fix has to be reachable without a redeploy.
+
+Either way the `/api/ai` routes take the first key that works — Anthropic
+(native Claude API), then OpenRouter. Both are tried per request, so a key one
+provider rejects falls through to the other instead of taking every AI feature
+down. Setting both is the cheapest insurance against a dead key.
 
 **Check the deployed key without guessing:**
 
@@ -105,14 +116,14 @@ together:
 | true | true | A real key that arrived wrapped or padded; it works now, but re-paste it clean |
 | true | false | A well-formed key the provider still refuses — revoked, or from another account |
 
-A 401 here is always one of:
-
-- the key is revoked or belongs to another account — issue a new one
-  ([OpenRouter](https://openrouter.ai/keys), [Anthropic](https://console.anthropic.com/settings/keys))
-- it was set for the wrong environment — Production is its own value, and
-  Preview/Development do not fall back to it
-- it was set but not redeployed — env vars are read at build time into the
-  new deployment, so an existing one keeps the old value forever
+A 401 here means the key is revoked, belongs to another account, or was never
+a key for that provider — issue a new one ([OpenRouter](https://openrouter.ai/keys),
+[Anthropic](https://console.anthropic.com/settings/keys)) and paste it into
+Settings → AI. If you are setting the env var instead, two more failure modes
+apply that the in-app path does not have: it must be set for the **Production**
+environment specifically (Preview/Development do not fall back to it), and it
+only reaches a **new build**, so an existing deployment keeps the old value
+forever.
 
 Keys are normalised before use (surrounding quotes, a pasted `Bearer ` prefix,
 stray whitespace), because each of those turns a valid key into an
@@ -134,8 +145,9 @@ helpers rather than load-mutate-save — every dev server and production share
 this one row.
 
 Vercel env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-`SUPABASE_SERVICE_ROLE_KEY`, `TRIA_ENC_KEY`, and `ANTHROPIC_API_KEY` /
-`OPENROUTER_API_KEY` for the AI routes (see **AI provider** above).
+`SUPABASE_SERVICE_ROLE_KEY`, `TRIA_ENC_KEY`. The AI keys are optional here —
+Settings → AI stores them instead (see **AI provider** above); `TRIA_ENC_KEY`
+and the service-role key are what that storage needs.
 
 ## Structure
 
