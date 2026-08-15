@@ -541,23 +541,27 @@ export default function MailPane({
 
   return (
     <section className="pane relative flex h-full min-h-0 flex-col rounded-xl">
-      <PaneHeader>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 text-(--color-clay)">
-          <MailIcon />
-        </span>
-        <h2 className="font-display text-[16px] font-light uppercase tracking-[0.32em] text-white">
-          Mail
-        </h2>
-        <button
-          onClick={() => onRefresh(folder)}
-          disabled={refreshing}
-          title="Refresh"
-          aria-label="Refresh mail"
-          className="ml-auto rounded-full border border-white/15 bg-white/5 p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-60"
-        >
-          <RefreshIcon className={refreshing ? "spin-slow" : ""} />
-        </button>
-      </PaneHeader>
+      {/* On mobile the bottom nav already says "Mail" — the header bar is
+          dead space, so it's desktop-only and refresh moves down by the search box. */}
+      <div className="hidden lg:block">
+        <PaneHeader>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 text-(--color-clay)">
+            <MailIcon />
+          </span>
+          <h2 className="font-display text-[16px] font-light uppercase tracking-[0.32em] text-white">
+            Mail
+          </h2>
+          <button
+            onClick={() => onRefresh(folder)}
+            disabled={refreshing}
+            title="Refresh"
+            aria-label="Refresh mail"
+            className="ml-auto rounded-full border border-white/15 bg-white/5 p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-60"
+          >
+            <RefreshIcon className={refreshing ? "spin-slow" : ""} />
+          </button>
+        </PaneHeader>
+      </div>
 
       {composing ? (
         /* ---------- COMPOSE ---------- */
@@ -951,6 +955,18 @@ export default function MailPane({
                 }`}
               >
                 <SparkIcon className="h-3 w-3" /> AI
+              </button>
+              {/* mobile-only: the header (and its refresh) is hidden below lg */}
+              <button
+                onClick={() => onRefresh(folder)}
+                disabled={refreshing}
+                title="Refresh"
+                aria-label="Refresh mail"
+                className="flex h-7 w-7 items-center justify-center rounded-md bg-(--color-paper) text-(--color-ink-faint) transition-colors hover:text-(--color-clay) disabled:opacity-60 lg:hidden"
+              >
+                <RefreshIcon
+                  className={`h-3.5 w-3.5 ${refreshing ? "spin-slow" : ""}`}
+                />
               </button>
             </div>
             {aiResult && (
