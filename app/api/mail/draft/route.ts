@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
 
     const uid = await withImap(cfg, async (client) => {
       const drafts = await resolveRole(client, "drafts");
+      if (!drafts) throw new Error("This account has no Drafts folder.");
       // drop the superseded copy so saving twice doesn't pile up drafts
       if (replaceUid) {
         const lock = await client.getMailboxLock(drafts);

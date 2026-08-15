@@ -53,6 +53,9 @@ export async function GET(req: NextRequest) {
       accounts.map((cfg) =>
         withImap(cfg, async (client) => {
           const sent = await resolveRole(client, "sent");
+          // no Sent folder: contribute nothing rather than harvesting
+          // INBOX senders, who are people who wrote to *you*
+          if (!sent) return;
           const lock = await client.getMailboxLock(sent);
           try {
             const total = client.mailbox ? client.mailbox.exists : 0;

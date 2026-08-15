@@ -81,7 +81,9 @@ export async function POST(req: NextRequest) {
     try {
       await withImap(cfg, async (client) => {
         const sent = await resolveRole(client, "sent");
-        await client.append(sent, raw, ["\\Seen"]);
+        // no Sent folder — skip the courtesy copy rather than dropping it
+        // into the inbox
+        if (sent) await client.append(sent, raw, ["\\Seen"]);
       });
     } catch {
       // non-fatal

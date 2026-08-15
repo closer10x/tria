@@ -50,37 +50,56 @@ export async function withImap<T>(
   }
 }
 
+const ROLES: Role[] = ["inbox", "snoozed", "drafts", "sent", "archive", "trash"];
+
+/** Guards request params before they reach a mailbox lookup. */
+export function isRole(v: string | null | undefined): v is Role {
+  return !!v && (ROLES as string[]).includes(v);
+}
+
+/**
+ * Map a role to a real mailbox path, or null when this account has no such
+ * mailbox.
+ *
+ * Callers MUST handle null. Returning "INBOX" as a fallback (the old
+ * behaviour) made a snooze or trash on a server without that folder move the
+ * message from INBOX to INBOX and report success — the mail silently never
+ * moved. `create` opts into making the Tria/Snoozed folder, so read paths
+ * don't mutate the user's mailbox as a side effect of listing.
+ */
 export async function resolveRole(
   client: ImapFlow,
-  role: Role
-): Promise<string> {
+  role: Role,
+  opts: { create?: boolean } = {}
+): Promise<string | null> {
   if (role === "inbox") return "INBOX";
   const list = await client.list();
   const bySpecial = (flag: string) =>
     list.find((m) => m.specialUse === flag)?.path;
   if (role === "drafts")
     return (
-      bySpecial("\\Drafts") ?? list.find((m) => /draft/i.test(m.path))?.path ?? "INBOX"
+      bySpecial("\\Drafts") ?? list.find((m) => /draft/i.test(m.path))?.path ?? null
     );
   if (role === "sent")
-    return bySpecial("\\Sent") ?? list.find((m) => /sent/i.test(m.path))?.path ?? "INBOX";
+    return bySpecial("\\Sent") ?? list.find((m) => /sent/i.test(m.path))?.path ?? null;
   if (role === "trash")
-    return bySpecial("\\Trash") ?? list.find((m) => /trash|deleted/i.test(m.path))?.path ?? "INBOX";
+    return bySpecial("\\Trash") ?? list.find((m) => /trash|deleted/i.test(m.path))?.path ?? null;
   if (role === "archive")
     return (
       bySpecial("\\Archive") ??
       bySpecial("\\All") ??
       list.find((m) => /all mail|archive/i.test(m.path))?.path ??
-      "INBOX"
+      null
     );
   // snoozed — a Tria-managed folder
   const existing = list.find((m) => /^Tria[/.]Snoozed$/.test(m.path));
   if (existing) return existing.path;
+  if (!opts.create) return null;
   try {
     await client.mailboxCreate("Tria/Snoozed");
     return "Tria/Snoozed";
   } catch {
-    return "INBOX";
+    return null;
   }
 }
 
@@ -173,6 +192,9 @@ export async function listMessages(
 ): Promise<WireEmail[]> {
   return withImap(cfg, async (client) => {
     const path = await resolveRole(client, role);
+    // no such folder on this account (e.g. nothing snoozed yet) — an empty
+    // list is the honest answer; don't read INBOX and label it otherwise
+    if (!path) return [];
     const lock = await client.getMailboxLock(path, { readOnly: true });
     try {
       const mailbox = client.mailbox;

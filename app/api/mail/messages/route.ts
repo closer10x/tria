@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE } from "@/lib/mail/store";
 import { resolveAccount, resolveAllAccounts } from "@/lib/mail/resolve";
-import { listMessages, Role, WireEmail } from "@/lib/mail/imap";
+import { isRole, listMessages, Role, WireEmail } from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
-  const role = (req.nextUrl.searchParams.get("role") ?? "inbox") as Role;
+  const roleParam = req.nextUrl.searchParams.get("role") ?? "inbox";
+  if (!isRole(roleParam))
+    return NextResponse.json({ ok: false, error: "Unknown folder" }, { status: 400 });
+  const role: Role = roleParam;
   const tz = req.nextUrl.searchParams.get("tz") ?? undefined;
   const account = req.nextUrl.searchParams.get("account");
   const offset = Number(req.nextUrl.searchParams.get("offset") ?? 0) || 0;

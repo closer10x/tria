@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
   try {
     await withImap(cfg, async (client) => {
       const path = await resolveRole(client, role ?? "inbox");
+      if (!path) throw new Error(`This account has no ${role ?? "inbox"} folder.`);
       const lock = await client.getMailboxLock(path);
       try {
         const uidStr = String(uid);
@@ -53,7 +54,18 @@ export async function POST(req: NextRequest) {
           case "snooze": {
             const targetRole: Role =
               action === "snooze" ? "snoozed" : action === "inbox" ? "inbox" : action;
-            const target = await resolveRole(client, targetRole);
+            // create only for snooze — the folder is Tria's to make; the
+            // rest must already exist. Never fall back to INBOX: moving a
+            // message inbox→inbox and reporting success loses it silently.
+            const target = await resolveRole(client, targetRole, {
+              create: targetRole === "snoozed",
+            });
+            if (!target)
+              throw new Error(
+                targetRole === "snoozed"
+                  ? "Couldn't create the Tria/Snoozed folder on this mail server."
+                  : `This account has no ${targetRole} folder, so the message wasn't moved.`
+              );
             await client.messageMove(uidStr, target, opts);
             break;
           }

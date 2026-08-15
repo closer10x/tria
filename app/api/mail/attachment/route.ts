@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE } from "@/lib/mail/store";
 import { resolveAccount } from "@/lib/mail/resolve";
-import { resolveRole, Role, withImap } from "@/lib/mail/imap";
+import { isRole, resolveRole, Role, withImap } from "@/lib/mail/imap";
 
 /** Stream one attachment out of a message so the browser can display it. */
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams;
-  const role = (q.get("role") ?? "inbox") as Role;
+  const roleParam = q.get("role") ?? "inbox";
+  if (!isRole(roleParam)) return new NextResponse("Unknown folder", { status: 400 });
+  const role: Role = roleParam;
   const uid = Number(q.get("uid"));
   const part = q.get("part");
   const account = q.get("account");
@@ -17,6 +19,9 @@ export async function GET(req: NextRequest) {
   try {
     const file = await withImap(cfg, async (client) => {
       const path = await resolveRole(client, role);
+      // reading the wrong folder would download a different message with the
+      // same uid, so fail rather than fall back
+      if (!path) return null;
       const lock = await client.getMailboxLock(path, { readOnly: true });
       try {
         const dl = await client.download(String(uid), part, { uid: true });

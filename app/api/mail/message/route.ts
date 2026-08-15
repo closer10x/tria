@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { simpleParser } from "mailparser";
 import { COOKIE } from "@/lib/mail/store";
 import { resolveAccount } from "@/lib/mail/resolve";
-import { resolveRole, Role, withImap } from "@/lib/mail/imap";
+import { isRole, resolveRole, Role, withImap } from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
 
 export async function GET(req: NextRequest) {
@@ -10,13 +10,19 @@ export async function GET(req: NextRequest) {
   const cfg = await resolveAccount(token, req.nextUrl.searchParams.get("account"));
   if (!cfg)
     return NextResponse.json({ ok: false, error: "Not connected" }, { status: 401 });
-  const role = (req.nextUrl.searchParams.get("role") ?? "inbox") as Role;
+  const roleParam = req.nextUrl.searchParams.get("role") ?? "inbox";
+  if (!isRole(roleParam))
+    return NextResponse.json({ ok: false, error: "Unknown folder" }, { status: 400 });
+  const role: Role = roleParam;
   const uid = Number(req.nextUrl.searchParams.get("uid"));
   if (!uid)
     return NextResponse.json({ ok: false, error: "Missing uid" }, { status: 400 });
   try {
     const result = await withImap(cfg, async (client) => {
       const path = await resolveRole(client, role);
+      // uids are per-folder: reading INBOX instead would return a different
+      // message entirely
+      if (!path) throw new Error(`This account has no ${role} folder.`);
       const lock = await client.getMailboxLock(path);
       try {
         const dl = await client.download(String(uid), undefined, { uid: true });
