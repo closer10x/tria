@@ -439,7 +439,7 @@ export default function SettingsModal({
                                   onRenameAccount(a, renameText);
                                   setRenamingId(null);
                                 }}
-                                className="rounded-md bg-(--color-ink) px-2 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-white"
+                                className="rounded-md bg-(--color-ink) px-2 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-(--color-paper)"
                               >
                                 Save
                               </button>
@@ -792,7 +792,7 @@ export default function SettingsModal({
                     </button>
                     <button
                       onClick={() => setStep(0)}
-                      className="flex-1 rounded-lg bg-(--color-ink) px-3 py-2 text-[13px] font-semibold text-white transition-transform hover:scale-[1.01]"
+                      className="flex-1 rounded-lg bg-(--color-ink) px-3 py-2 text-[13px] font-semibold text-(--color-paper) transition-transform hover:scale-[1.01]"
                     >
                       Done
                     </button>
@@ -896,7 +896,7 @@ export default function SettingsModal({
         <div className="border-t hairline p-4">
           <button
             onClick={onClose}
-            className="w-full rounded-lg bg-(--color-ink) px-4 py-2.5 text-[13px] font-semibold text-white transition-transform hover:scale-[1.01] active:scale-[0.99]"
+            className="w-full rounded-lg bg-(--color-ink) px-4 py-2.5 text-[13px] font-semibold text-(--color-paper) transition-transform hover:scale-[1.01] active:scale-[0.99]"
           >
             Done
           </button>
