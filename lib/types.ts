@@ -32,6 +32,7 @@ export type Email = {
 export type Provider =
   | "gmail"
   | "outlook"
+  | "m365"
   | "godaddy"
   | "yahoo"
   | "icloud"

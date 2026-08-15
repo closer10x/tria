@@ -25,12 +25,20 @@ const providerPresets: Record<
     note: "Gmail needs an app password (Google Account → Security → 2-Step Verification → App passwords).",
   },
   outlook: {
-    label: "Outlook",
+    label: "Outlook.com",
     imapHost: "outlook.office365.com",
     imapPort: 993,
     smtpHost: "smtp-mail.outlook.com",
     smtpPort: 587,
-    note: "Microsoft 365 / Outlook.com. Use an app password if 2FA is on.",
+    note: "Personal @outlook.com / @hotmail.com accounts. For a work or custom-domain address, pick Microsoft 365 instead.",
+  },
+  m365: {
+    label: "Microsoft 365",
+    imapHost: "outlook.office365.com",
+    imapPort: 993,
+    smtpHost: "smtp.office365.com",
+    smtpPort: 587,
+    note: "Work/custom-domain Microsoft 365 mail. IMAP and Authenticated SMTP must be enabled for the mailbox (admin.microsoft.com → Users → Mail → Manage email apps), and Microsoft blocks password logins entirely when MFA is on.",
   },
   godaddy: {
     label: "GoDaddy",

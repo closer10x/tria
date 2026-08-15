@@ -21,7 +21,9 @@ const appPasswordHelp: Partial<Record<Provider, string>> = {
   icloud:
     "iCloud rejected the login. Use an app-specific password from appleid.apple.com.",
   outlook:
-    "Outlook rejected the login. If 2FA is on, use an app password instead of your account password.",
+    "Outlook.com rejected the login. If 2FA is on, use an app password instead of your account password.",
+  m365:
+    "Microsoft 365 rejected the login. Usually IMAP or Authenticated SMTP is switched off for the mailbox — enable both at admin.microsoft.com → Users → Active users → the mailbox → Mail → Manage email apps. If the account has MFA on, Microsoft blocks password logins outright and it needs OAuth sign-in instead.",
   godaddy:
     "GoDaddy rejected the login. Double-check the password — if your mail runs on Microsoft 365, pick the Outlook preset instead.",
 };
