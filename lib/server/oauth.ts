@@ -16,7 +16,15 @@ type ProviderConfig = {
   label: string;
   authUrl: string;
   tokenUrl: string;
+  /** Asked for at consent time; may span more than one resource. */
   scopes: string;
+  /**
+   * Asked for when redeeming a code or a refresh token. A Microsoft access
+   * token is issued for exactly one resource, so this must name a single one —
+   * and once `scopes` spans two, Microsoft can no longer infer which is meant
+   * and rejects the exchange with AADSTS28003. Defaults to `scopes`.
+   */
+  tokenScopes?: string;
   extraAuthParams: Record<string, string>;
   clientId?: string;
   clientSecret?: string;
@@ -46,6 +54,15 @@ export const providers: Record<OAuthProvider, ProviderConfig> = {
       // needs it whenever the tenant has SMTP AUTH switched off — see
       // lib/mail/graph.ts.
       "https://graph.microsoft.com/Mail.Send",
+    ].join(" "),
+    // IMAP and SMTP only: the Graph token is fetched separately from the
+    // refresh token, by getGraphAccessToken, with its own single resource.
+    tokenScopes: [
+      "offline_access",
+      "openid",
+      "email",
+      "https://outlook.office.com/IMAP.AccessAsUser.All",
+      "https://outlook.office.com/SMTP.Send",
     ].join(" "),
     extraAuthParams: { response_mode: "query" },
     clientId: process.env.MICROSOFT_OAUTH_CLIENT_ID,
@@ -207,6 +224,7 @@ export async function completeSignIn(
     code,
     redirect_uri: redirectUri(origin, p),
     code_verifier: codeVerifier,
+    scope: providers[p].tokenScopes ?? providers[p].scopes,
   });
   if (tok.error || !tok.access_token)
     return { error: signInErrorMessage(p, tok) };
@@ -266,6 +284,10 @@ export async function getAccessToken(accountId: string): Promise<string> {
   const tok = await postToken(p, {
     grant_type: "refresh_token",
     refresh_token: decrypt(account.refreshTokenEnc, aad),
+    // name the resource explicitly: without it, a refresh against a
+    // multi-resource consent can come back as a Graph token, which IMAP and
+    // SMTP would then reject
+    scope: providers[p].tokenScopes ?? providers[p].scopes,
   });
   if (tok.error || !tok.access_token)
     throw new Error(
