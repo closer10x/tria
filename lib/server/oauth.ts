@@ -152,6 +152,28 @@ function emailFromIdToken(idToken: string | undefined): string | null {
 
 const tokenAad = (email: string, p: OAuthProvider) => `${email}|oauth|${p}`;
 
+/**
+ * Providers answer a failed exchange with an opaque error code. Translate the
+ * setup mistakes into something the person configuring the app can act on.
+ */
+function signInErrorMessage(p: OAuthProvider, tok: TokenResponse): string {
+  const raw = `${tok.error_description ?? ""} ${tok.error ?? ""}`;
+  const label = providers[p].label;
+
+  if (/AADSTS7000218|client_assertion.*client_secret|invalid_client/i.test(raw))
+    return `${label} rejected the sign-in because the app registration needs a client secret. Its redirect URI is registered as a "Web" platform, which requires one even with PKCE — create a secret in the app registration and set ${p === "microsoft" ? "MICROSOFT_OAUTH_CLIENT_SECRET" : "GOOGLE_OAUTH_CLIENT_SECRET"}, then redeploy.`;
+  if (/AADSTS9002327/i.test(raw))
+    return `The app registration lists this redirect URI under "Single-page application". Move it to the "Web" platform — tokens are exchanged on the server.`;
+  if (/AADSTS50011|redirect_uri|redirect URI/i.test(raw))
+    return `The redirect URI doesn't match the app registration. It must be exactly ${"<your domain>"}/api/oauth/${p}/callback.`;
+  if (/AADSTS65001|consent_required|admin_consent/i.test(raw))
+    return `${label} needs an administrator to approve this app for your organisation before it can read mail.`;
+  if (/AADSTS700016|unauthorized_client|application.*not found/i.test(raw))
+    return `${label} doesn't recognise this client ID for your organisation — check the app registration and that it allows accounts from any directory.`;
+
+  return tok.error_description ?? tok.error ?? "Sign-in failed";
+}
+
 /** Exchange the callback code and persist the account. Returns its email. */
 export async function completeSignIn(
   p: OAuthProvider,
@@ -167,7 +189,7 @@ export async function completeSignIn(
     code_verifier: codeVerifier,
   });
   if (tok.error || !tok.access_token)
-    return { error: tok.error_description ?? tok.error ?? "Token exchange failed" };
+    return { error: signInErrorMessage(p, tok) };
   if (!tok.refresh_token)
     return {
       error:
