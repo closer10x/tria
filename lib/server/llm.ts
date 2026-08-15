@@ -142,6 +142,14 @@ async function attemptOpenRouter(model: string, req: LlmRequest): Promise<string
   const choice = data.choices?.[0];
   if (choice?.finish_reason === "content_filter") throw new LlmRefusal();
   const text = choice?.message?.content?.trim() ?? "";
+  // A 200 with no content is still a failure — some free models spend the
+  // whole budget on a reasoning prefix and stop (finish_reason "length")
+  // without emitting anything. Fall through to the next model rather than
+  // handing the caller an empty answer.
+  if (!text)
+    throw Object.assign(new Error(`${model} returned an empty completion.`), {
+      status: 502,
+    });
   return req.schema ? stripFences(text) : text;
 }
 

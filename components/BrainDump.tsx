@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ParsedTaskDraft } from "@/app/api/ai/parse-tasks/route";
 import VoiceButton from "./VoiceButton";
-import { SparkIcon } from "./ui";
+import { MicIcon, SparkIcon } from "./ui";
 
 /**
  * Brain-dump capture bar for the Smart Tasks pane: type or talk one big blur
@@ -51,12 +51,16 @@ export default function BrainDump({
 
   if (!open) {
     return (
+      // a slim pill, not a banner — the two icons say "type or talk" so the
+      // label doesn't have to, and the full prompt lives in the tooltip
       <button
         onClick={() => setOpen(true)}
-        className="mx-5 mt-3 flex items-center gap-2 rounded-lg border hairline px-3 py-2 text-left text-[13px] text-(--color-ink-faint) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-ink-soft)"
+        title="Brain-dump your tasks — type or talk, one big blur"
+        className="mx-5 mt-2.5 flex items-center gap-1.5 self-start rounded-full border hairline px-3 py-1.5 text-[11px] font-medium text-(--color-ink-faint) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-ink-soft)"
       >
-        <SparkIcon className="h-3.5 w-3.5 text-(--color-clay)" />
-        Brain-dump your tasks — type or talk, one big blur…
+        <SparkIcon className="h-3 w-3 text-(--color-clay)" />
+        Brain-dump
+        <MicIcon className="h-3 w-3 opacity-50" />
       </button>
     );
   }
