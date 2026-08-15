@@ -1402,8 +1402,11 @@ export default function Home() {
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden">
-      {/* Top bar */}
-      <header className="flex items-center justify-between px-6 pb-2 pt-4">
+      {/* Top bar — desktop only; on phones the Mail drawer carries settings and
+          the bottom nav labels the panes, so this row is reclaimed for content */}
+      <header
+        className="hidden items-center justify-between px-6 pb-2 pt-4 lg:flex"
+      >
         <div className="flex items-center gap-3.5">
           <div className="flex items-end gap-[3px]">
             <span className="h-4 w-[3px] rounded-sm bg-(--color-clay)" />
@@ -1444,7 +1447,10 @@ export default function Home() {
       />
 
       {/* Three panes */}
-      <div className="flex min-h-0 flex-1 flex-col gap-2.5 p-2.5 pt-2 lg:grid lg:grid-cols-3 lg:gap-4 lg:p-4 lg:pt-2">
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-2.5 p-2.5 lg:grid lg:grid-cols-3 lg:gap-4 lg:p-4 lg:pt-2"
+        style={{ paddingTop: "max(0.625rem, env(safe-area-inset-top))" }}
+      >
         <div
           className={`min-h-0 flex-1 ${
             mobileTab === "mail" ? "flex flex-col" : "hidden"
@@ -1456,6 +1462,8 @@ export default function Home() {
           selectedId={selectedEmailId}
           onSelect={openEmail}
           onBack={() => setSelectedEmailId(null)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          userName={settings.name}
           onMakeTask={startTaskFromEmail}
           onShareToThread={shareEmailToThread}
           onViewTask={highlightTask}

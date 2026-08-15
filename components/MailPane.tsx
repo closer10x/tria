@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Email, Folder, OutgoingAttachment } from "@/lib/types";
 import { apiContacts, Contact } from "@/lib/mailApi";
+import MailDrawer from "./MailDrawer";
 import {
   ArchiveIcon,
   Avatar,
@@ -211,6 +212,8 @@ export default function MailPane({
   onToggleStar,
   onMarkUnread,
   onFolderChange,
+  onOpenSettings,
+  userName,
   onSaveDraft,
   onRefresh,
   refreshing,
@@ -247,6 +250,10 @@ export default function MailPane({
   onToggleStar: (id: string) => void;
   onMarkUnread: (id: string) => void;
   onFolderChange: (folder: Folder) => void;
+  /** Opens the app settings modal — reached from the mobile drawer. */
+  onOpenSettings?: () => void;
+  /** Shown in the mobile drawer footer, where the desktop top bar's name pill lived. */
+  userName?: string;
   onSaveDraft: (
     to: string,
     subject: string,
@@ -270,6 +277,13 @@ export default function MailPane({
   const [query, setQuery] = useState("");
   const [aiMode, setAiMode] = useState(false);
   const [folder, setFolder] = useState<Folder>("inbox");
+  // mobile-only chrome: burger drawer + a search field that opens on demand
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const mobileSearchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (mobileSearchOpen) mobileSearchRef.current?.focus();
+  }, [mobileSearchOpen]);
   // which account's mail to show — "all" is the unified view
   const [account, setAccount] = useState<string>("all");
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -799,8 +813,97 @@ export default function MailPane({
       ) : !selected ? (
         /* ---------- LIST ---------- */
         <>
+          {/* ---- mobile toolbar: burger · folder name · search · refresh ---- */}
+          <div className="flex items-center gap-1 px-3 pt-2.5 lg:hidden">
+            <button
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open mail menu"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-(--color-ink-soft) transition-colors hover:bg-(--color-paper)"
+            >
+              <svg viewBox="0 0 16 16" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
+              </svg>
+            </button>
+            {mobileSearchOpen ? (
+              <div
+                className={`flex min-w-0 flex-1 items-center gap-1 rounded-lg border bg-white pr-1 transition-colors ${
+                  aiMode ? "border-(--color-clay)/50" : "hairline"
+                }`}
+              >
+                <input
+                  ref={mobileSearchRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setQuery("");
+                      setMobileSearchOpen(false);
+                    }
+                  }}
+                  placeholder={aiMode ? "Ask your mail…" : "Search mail…"}
+                  className="min-w-0 flex-1 bg-transparent px-3 py-1.5 text-sm outline-none placeholder:text-(--color-ink-faint)"
+                />
+                <button
+                  onClick={() => setAiMode((v) => !v)}
+                  title="Toggle AI search"
+                  className={`flex h-7 items-center gap-1 rounded-md px-2 font-display text-[9px] font-semibold uppercase tracking-[0.14em] ${
+                    aiMode ? "bg-(--color-clay) text-white" : "bg-(--color-paper) text-(--color-ink-faint)"
+                  }`}
+                >
+                  <SparkIcon className="h-3 w-3" /> AI
+                </button>
+                <button
+                  onClick={() => {
+                    setQuery("");
+                    setMobileSearchOpen(false);
+                  }}
+                  aria-label="Close search"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-(--color-ink-faint)"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={() => setDrawerOpen(true)}
+                  className="min-w-0 flex-1 truncate text-left font-display text-[13px] font-medium uppercase tracking-[0.2em] text-(--color-ink)"
+                >
+                  {folders.find((f) => f.key === folder)?.label}
+                  {multiAccount && activeAccount !== "all" && (
+                    <span className="ml-2 inline-flex items-center gap-1 normal-case tracking-normal text-[11px] text-(--color-ink-faint)">
+                      <span
+                        className="inline-block h-1.5 w-1.5 rounded-full"
+                        style={{ background: accountColor(accounts, activeAccount) }}
+                      />
+                      {accountLabel(activeAccount, accountLabels)}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setMobileSearchOpen(true)}
+                  aria-label="Search mail"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-(--color-ink-soft) transition-colors hover:bg-(--color-paper)"
+                >
+                  <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                    <circle cx="7" cy="7" r="4.5" />
+                    <path d="M10.5 10.5L14 14" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => onRefresh(folder)}
+                  disabled={refreshing}
+                  aria-label="Refresh mail"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-(--color-ink-soft) transition-colors hover:bg-(--color-paper) disabled:opacity-60"
+                >
+                  <RefreshIcon className={`h-4 w-4 ${refreshing ? "spin-slow" : ""}`} />
+                </button>
+              </>
+            )}
+          </div>
+
           {multiAccount && (
-            <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto px-5 pt-3">
+            <div className="no-scrollbar hidden items-center gap-1.5 overflow-x-auto px-5 pt-3 lg:flex">
               <button
                 onClick={() => {
                   setAccount("all");
@@ -845,7 +948,7 @@ export default function MailPane({
               ))}
             </div>
           )}
-          <div className="no-scrollbar flex justify-between gap-2 overflow-x-auto px-5 pt-3">
+          <div className="no-scrollbar hidden justify-between gap-2 overflow-x-auto px-5 pt-3 lg:flex">
             {folders.map((f) => (
               <button
                 key={f.key}
@@ -929,7 +1032,7 @@ export default function MailPane({
               </button>
             </div>
           )}
-          <div className="px-5 pt-3 pb-2">
+          <div className="hidden px-5 pt-3 pb-2 lg:block">
             <div
               className={`flex items-center gap-1.5 rounded-lg border bg-white pr-1.5 transition-colors ${
                 aiMode ? "border-(--color-clay)/50" : "hairline"
@@ -955,18 +1058,6 @@ export default function MailPane({
                 }`}
               >
                 <SparkIcon className="h-3 w-3" /> AI
-              </button>
-              {/* mobile-only: the header (and its refresh) is hidden below lg */}
-              <button
-                onClick={() => onRefresh(folder)}
-                disabled={refreshing}
-                title="Refresh"
-                aria-label="Refresh mail"
-                className="flex h-7 w-7 items-center justify-center rounded-md bg-(--color-paper) text-(--color-ink-faint) transition-colors hover:text-(--color-clay) disabled:opacity-60 lg:hidden"
-              >
-                <RefreshIcon
-                  className={`h-3.5 w-3.5 ${refreshing ? "spin-slow" : ""}`}
-                />
               </button>
             </div>
             {aiResult && (
@@ -1531,6 +1622,31 @@ export default function MailPane({
           </div>
         </div>
       )}
+
+      <MailDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        folders={folders}
+        folder={folder}
+        folderCount={count}
+        onSelectFolder={(f) => {
+          setFolder(f);
+          clearSelection();
+          onFolderChange(f);
+        }}
+        accounts={accounts}
+        accountLabel={(a) => accountLabel(a, accountLabels)}
+        accountColor={(a) => accountColor(accounts, a)}
+        accountUnread={accountUnread}
+        activeAccount={activeAccount}
+        onSelectAccount={(a) => {
+          setAccount(a);
+          clearSelection();
+        }}
+        onOpenSettings={() => onOpenSettings?.()}
+        live={accounts.length > 0}
+        userName={userName}
+      />
     </section>
   );
 }
