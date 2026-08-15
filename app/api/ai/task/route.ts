@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { llmChat, llmProvider, LlmRefusal, NO_PROVIDER_MSG } from "@/lib/server/llm";
 
 /**
  * Turn an email into a smart task by reading it: one checklist item per thing
@@ -57,14 +57,9 @@ export type SmartTaskDraft = {
 };
 
 export async function POST(req: NextRequest) {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key)
+  if (!llmProvider())
     return NextResponse.json(
-      {
-        ok: false,
-        error:
-          "Smart tasks need Claude — set ANTHROPIC_API_KEY on the server and redeploy.",
-      },
+      { ok: false, error: NO_PROVIDER_MSG },
       { status: 503 }
     );
 
@@ -76,14 +71,9 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    const client = new Anthropic({ apiKey: key });
-    const response = await client.messages.create({
-      model: "claude-opus-5",
-      max_tokens: 1024,
-      output_config: {
-        effort: "low",
-        format: { type: "json_schema", schema: SCHEMA },
-      },
+    const text = await llmChat({
+      maxTokens: 1024,
+      schema: SCHEMA,
       system:
         "You turn an email into a task for the person who received it. Read the whole message and list every distinct thing the sender is asking for as its own checklist item — a compound sentence asking for two things is two items. Ignore pleasantries and signatures. Use the recipient's perspective: the actions are things they must do.",
       messages: [
@@ -94,19 +84,17 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    if (response.stop_reason === "refusal")
+    const draft = JSON.parse(text) as SmartTaskDraft;
+    // weaker providers can return shape-adjacent JSON — reject it here
+    if (typeof draft?.title !== "string" || !Array.isArray(draft.checklist))
+      throw new Error("The model returned an unusable task.");
+    return NextResponse.json({ ok: true, task: draft });
+  } catch (e) {
+    if (e instanceof LlmRefusal)
       return NextResponse.json(
         { ok: false, error: "Claude declined to summarise that email." },
         { status: 422 }
       );
-
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    const draft = JSON.parse(text) as SmartTaskDraft;
-    return NextResponse.json({ ok: true, task: draft });
-  } catch (e) {
     console.error("smart task failed", e);
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "Smart task failed" },

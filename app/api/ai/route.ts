@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { llmChat, llmProvider, LlmRefusal, NO_PROVIDER_MSG } from "@/lib/server/llm";
 
 /**
- * The AI pane, backed by Claude. The client sends the conversation plus a
- * snapshot of what's on screen — mail, tasks, threads — so answers are about
- * the user's actual inbox rather than generic advice.
+ * The AI pane, backed by Claude (direct or via OpenRouter — see lib/server/llm).
+ * The client sends the conversation plus a snapshot of what's on screen —
+ * mail, tasks, threads — so answers are about the user's actual inbox rather
+ * than generic advice.
  */
 
 export const maxDuration = 60;
@@ -83,17 +84,11 @@ function buildSystem(ctx: Context): string {
 }
 
 export async function POST(req: NextRequest) {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
+  if (!llmProvider())
     return NextResponse.json(
-      {
-        ok: false,
-        error:
-          "The AI pane isn't configured yet — set ANTHROPIC_API_KEY on the server and redeploy.",
-      },
+      { ok: false, error: NO_PROVIDER_MSG },
       { status: 503 }
     );
-  }
 
   const { turns, context } = (await req.json()) as {
     turns: Turn[];
@@ -103,46 +98,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "No message" }, { status: 400 });
 
   try {
-    const client = new Anthropic({ apiKey: key });
-    const response = await client.messages.create({
-      model: "claude-opus-5",
-      // chat replies in a side panel are deliberately short
-      max_tokens: 2048,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "low" },
+    const text = await llmChat({
       system: buildSystem(context ?? {}),
+      // chat replies in a side panel are deliberately short
+      maxTokens: 2048,
       messages: turns.map((t) => ({ role: t.role, content: t.text })),
     });
-
-    if (response.stop_reason === "refusal") {
-      return NextResponse.json({
-        ok: true,
-        text: "I can't help with that one.",
-      });
-    }
-
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("\n")
-      .trim();
-
     return NextResponse.json({ ok: true, text: text || "(no answer)" });
   } catch (e) {
+    if (e instanceof LlmRefusal)
+      return NextResponse.json({ ok: true, text: "I can't help with that one." });
     const err = e as { status?: number; message?: string };
     if (err.status === 401)
       return NextResponse.json(
-        { ok: false, error: "Claude rejected the API key — check ANTHROPIC_API_KEY." },
+        { ok: false, error: err.message ?? "The AI provider rejected the API key." },
         { status: 401 }
       );
     if (err.status === 429)
       return NextResponse.json(
-        { ok: false, error: "Rate limited by Claude — try again in a moment." },
+        { ok: false, error: "Rate limited — try again in a moment." },
         { status: 429 }
       );
     return NextResponse.json(
       { ok: false, error: err.message ?? "The AI request failed." },
-      { status: 500 }
+      { status: err.status === 503 ? 503 : 500 }
     );
   }
 }

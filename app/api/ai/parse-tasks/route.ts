@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { llmChat, llmProvider, LlmRefusal } from "@/lib/server/llm";
 
 /**
  * Split a spoken or typed brain-dump ("email Jon, book flights, 30 min gym")
@@ -93,8 +93,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
 
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key)
+  if (!llmProvider())
     // degrade rather than fail: a dumb split still beats losing the dump
     return NextResponse.json({
       ok: true,
@@ -103,14 +102,9 @@ export async function POST(req: NextRequest) {
     });
 
   try {
-    const client = new Anthropic({ apiKey: key });
-    const response = await client.messages.create({
-      model: "claude-opus-5",
-      max_tokens: 2048,
-      output_config: {
-        effort: "low",
-        format: { type: "json_schema", schema: SCHEMA },
-      },
+    const out = await llmChat({
+      maxTokens: 2048,
+      schema: SCHEMA,
       system:
         "You turn a rough brain-dump into a clean task list. The input is one unstructured blur — spoken or typed — that may pack several unrelated tasks into one breath. Split it into individual tasks, one per distinct thing to do. Keep the speaker's words where they're already concrete; don't invent tasks, deadlines, or priorities that aren't implied. Mentions of urgency ('asap', 'before Friday') set priority and due; time estimates go in the note.",
       messages: [
@@ -121,23 +115,31 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    if (response.stop_reason === "refusal")
+    const parsed = JSON.parse(out) as { tasks?: ParsedTaskDraft[] };
+    // weaker providers can return shape-adjacent JSON — the splitter is a
+    // better outcome than a crashed route
+    const tasks: ParsedTaskDraft[] = (Array.isArray(parsed?.tasks) ? parsed.tasks : [])
+      .filter((t) => typeof t?.title === "string" && t.title.trim())
+      .map((t) => ({
+        title: t.title.trim(),
+        note: typeof t.note === "string" ? t.note : "",
+        priority:
+          t.priority === "high" || t.priority === "low" ? t.priority : "medium",
+        due: typeof t.due === "string" ? t.due : "",
+        checklist: Array.isArray(t.checklist)
+          ? t.checklist.filter((c) => typeof c?.label === "string")
+          : [],
+      }));
+    if (tasks.length === 0)
+      return NextResponse.json({ ok: true, tasks: fallbackParse(text), fallback: true });
+    return NextResponse.json({ ok: true, tasks });
+  } catch (e) {
+    if (e instanceof LlmRefusal)
       return NextResponse.json(
         { ok: false, error: "Claude declined to parse that." },
         { status: 422 }
       );
-
-    const out = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    const parsed = JSON.parse(out) as { tasks: ParsedTaskDraft[] };
-    return NextResponse.json({ ok: true, tasks: parsed.tasks });
-  } catch (e) {
-    console.error("parse tasks failed", e);
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "Parsing failed" },
-      { status: 500 }
-    );
+    console.error("parse tasks failed, using splitter", e);
+    return NextResponse.json({ ok: true, tasks: fallbackParse(text), fallback: true });
   }
 }
