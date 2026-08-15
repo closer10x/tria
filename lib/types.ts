@@ -1,0 +1,104 @@
+export type Sender = {
+  name: string;
+  email: string;
+  initials: string;
+  hue: string; // tailwind-ish bg class token
+};
+
+export type Folder = "inbox" | "snoozed" | "sent" | "archive" | "trash";
+
+export type FileRef = { name: string; size?: string };
+
+export type Email = {
+  id: string;
+  uid?: number; // set when the email comes from a live IMAP account
+  accountId?: string; // which connected account this message belongs to
+  from: Sender;
+  to?: string;
+  subject: string;
+  preview: string;
+  body: string[];
+  time: string;
+  read: boolean;
+  folder: Folder;
+  starred?: boolean;
+  snoozedUntil?: string;
+  replied?: boolean;
+  tag?: string;
+  taskId?: string; // linked smart task
+  attachments?: FileRef[];
+};
+
+export type Provider =
+  | "gmail"
+  | "outlook"
+  | "godaddy"
+  | "yahoo"
+  | "icloud"
+  | "custom";
+
+export type SavedAccount = { id: string; email: string; provider: Provider };
+
+export type Settings = {
+  name: string;
+  email: string;
+  signature: string;
+  provider: Provider;
+  accounts: SavedAccount[];
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  password: string;
+  timezone: string;
+  timeFormat: "12h" | "24h";
+  snoozeTimes: { laterToday: string; tomorrow: string; nextWeek: string };
+};
+
+export type ChecklistItem = { id: string; label: string; done: boolean };
+
+export type TaskStatus = "todo" | "doing" | "done";
+export type TaskPriority = "high" | "medium" | "low";
+
+export type Task = {
+  id: string;
+  title: string;
+  note?: string;
+  sourceEmailId?: string;
+  priority: TaskPriority;
+  due?: string;
+  status: TaskStatus;
+  checklist: ChecklistItem[];
+  createdAt: string;
+  justCreated?: boolean;
+  attachments?: FileRef[];
+};
+
+export type Attachment =
+  | { type: "email"; refId: string }
+  | { type: "task"; refId: string }
+  | { type: "file"; files: FileRef[] };
+
+export type Message = {
+  id: string;
+  author: string; // "me" or a name
+  text: string;
+  time: string;
+  attachment?: Attachment;
+};
+
+export type Thread = {
+  id: string;
+  name: string;
+  members: string[];
+  emoji: string;
+  messages: Message[];
+};
+
+export type AiMessage = {
+  id: string;
+  role: "user" | "ai";
+  text: string;
+  time: string;
+  attachment?: Attachment;
+};
