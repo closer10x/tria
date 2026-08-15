@@ -4,8 +4,9 @@ import { Parser } from "htmlparser2";
  * Turn a raw email into something safe and readable for the reader pane.
  *
  * - HTML part → sanitized HTML: a strict tag/attribute allowlist, no scripts,
- *   styles, forms, or event handlers; remote images are dropped (tracking
- *   pixels, mixed content) unless the caller opts in; links open in a new
+ *   styles, forms, or event handlers; https images load with no referrer
+ *   (http:/cid: ones fall back to alt text); elements the sender hides
+ *   (preheader filler, mso blocks) stay hidden; links open in a new
  *   tab with rel=noopener; tables/widths that force horizontal scroll on a
  *   phone are stripped.
  * - Text part → HTML: paragraphs, and the URL/tel/mailto wrappers plaintext
@@ -24,11 +25,47 @@ const DROP_SUBTREE = new Set(["script", "style", "head", "title", "iframe", "obj
 const ALLOWED_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "title"]),
   img: new Set(["src", "alt", "width", "height"]),
-  td: new Set(["colspan", "rowspan", "align", "valign"]),
-  th: new Set(["colspan", "rowspan", "align", "valign"]),
-  table: new Set(["cellpadding", "cellspacing", "align"]),
-  font: new Set(["color"]),
+  td: new Set(["colspan", "rowspan", "align", "valign", "bgcolor"]),
+  th: new Set(["colspan", "rowspan", "align", "valign", "bgcolor"]),
+  table: new Set(["cellpadding", "cellspacing", "align", "bgcolor"]),
+  font: new Set(["color", "face", "size"]),
 };
+/**
+ * Inline style survives only for these properties — enough for the sender's
+ * layout (colours, alignment, spacing, type) with nothing that can escape the
+ * pane (position, fixed sizes, transforms) or fetch anything (url()).
+ */
+const SAFE_STYLE_PROPS = new Set([
+  "color", "background-color", "background", "font-family", "font-size",
+  "font-weight", "font-style", "text-align", "text-decoration", "line-height",
+  "letter-spacing", "text-transform", "vertical-align", "padding",
+  "padding-top", "padding-right", "padding-bottom", "padding-left", "margin",
+  "margin-top", "margin-right", "margin-bottom", "margin-left", "border",
+  "border-top", "border-right", "border-bottom", "border-left",
+  "border-radius", "border-collapse", "border-spacing", "display",
+  "white-space", "word-break", "opacity", "max-width",
+]);
+function safeStyle(style: string): string {
+  const kept: string[] = [];
+  for (const decl of style.split(";")) {
+    const idx = decl.indexOf(":");
+    if (idx === -1) continue;
+    const prop = decl.slice(0, idx).trim().toLowerCase();
+    const val = decl.slice(idx + 1).trim();
+    if (!SAFE_STYLE_PROPS.has(prop)) continue;
+    // no external fetches, no expressions, no escaping via display
+    if (/url\s*\(|expression|javascript|@import|behavior/i.test(val)) continue;
+    if (prop === "display" && !/^(block|inline|inline-block|none|table|table-cell|table-row)$/i.test(val)) continue;
+    if (prop === "background" && /url|gradient/i.test(val)) continue;
+    // never let one email set a fixed width wider than a phone
+    if (prop === "max-width") {
+      const px = parseInt(val, 10);
+      if (Number.isNaN(px) || px > 100) continue;
+    }
+    kept.push(`${prop}:${val.replace(/"/g, "'")}`);
+  }
+  return kept.join(";");
+}
 const VOID = new Set(["br", "img", "hr"]);
 
 const esc = (s: string) =>
@@ -41,7 +78,7 @@ function safeHref(href: string): string | null {
 }
 
 /** Whitelist-sanitize an HTML email body. Never trust the result less than this. */
-export function sanitizeEmailHtml(html: string, opts: { allowRemoteImages?: boolean } = {}): string {
+export function sanitizeEmailHtml(html: string, opts: { allowRemoteImages?: boolean } = { allowRemoteImages: true }): string {
   const out: string[] = [];
   let dropDepth = 0; // >0 while inside a DROP_SUBTREE element
   const openStack: string[] = [];
@@ -52,6 +89,19 @@ export function sanitizeEmailHtml(html: string, opts: { allowRemoteImages?: bool
         const tag = name.toLowerCase();
         if (dropDepth > 0 || DROP_SUBTREE.has(tag)) {
           if (DROP_SUBTREE.has(tag) || dropDepth > 0) dropDepth++;
+          return;
+        }
+        // honour the sender's own hiding — preheader filler ("͏ ­ ͏ ­ …"),
+        // hidden tracking blocks — otherwise stripping style makes it visible
+        const style = (attribs.style ?? "").toLowerCase();
+        if (
+          /display\s*:\s*none/.test(style) ||
+          /visibility\s*:\s*hidden/.test(style) ||
+          /max-height\s*:\s*0(px)?\s*(;|$)/.test(style) ||
+          /mso-hide\s*:\s*all/.test(style) ||
+          attribs.hidden !== undefined
+        ) {
+          dropDepth++;
           return;
         }
         if (!ALLOWED_TAGS.has(tag)) {
@@ -70,9 +120,9 @@ export function sanitizeEmailHtml(html: string, opts: { allowRemoteImages?: bool
               attrs.push(`href="${esc(safe)}"`);
             } else if (key === "src") {
               const s = v.trim();
-              if (s.startsWith("data:image/")) attrs.push(`src="${esc(s)}"`);
-              else if (opts.allowRemoteImages && /^https:/i.test(s)) attrs.push(`src="${esc(s)}"`);
-              else continue; // remote image blocked → alt text renders
+              if (s.startsWith("data:image/") || (opts.allowRemoteImages && /^https:/i.test(s)))
+                attrs.push(`src="${esc(s)}"`);
+              else continue; // http:/cid: images can't render here → alt text
             } else if (key === "width" || key === "height") {
               // cap absolute sizes so nothing forces a horizontal scroll
               const n = parseInt(v, 10);
@@ -82,7 +132,13 @@ export function sanitizeEmailHtml(html: string, opts: { allowRemoteImages?: bool
             }
           }
         }
+        if (style) {
+          const kept = safeStyle(style);
+          if (kept) attrs.push(`style="${esc(kept)}"`);
+        }
         if (tag === "a") attrs.push('target="_blank"', 'rel="noopener noreferrer nofollow"');
+        // never send the reader's referrer to image hosts; decode off-thread
+        if (tag === "img") attrs.push('referrerpolicy="no-referrer"', 'loading="lazy"', 'decoding="async"');
         out.push(`<${tag}${attrs.length ? " " + attrs.join(" ") : ""}${VOID.has(tag) ? "" : ">"}`);
         if (VOID.has(tag)) out.push(" />");
         else openStack.push(tag);

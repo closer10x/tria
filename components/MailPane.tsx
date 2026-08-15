@@ -212,6 +212,7 @@ export default function MailPane({
   onToggleStar,
   onMarkUnread,
   onFolderChange,
+  onScheduleSend,
   onOpenSettings,
   userName,
   onSaveDraft,
@@ -250,6 +251,15 @@ export default function MailPane({
   onToggleStar: (id: string) => void;
   onMarkUnread: (id: string) => void;
   onFolderChange: (folder: Folder) => void;
+  /** Queue a composed message to go out at `sendAt` (server-side, survives closing the app). */
+  onScheduleSend?: (
+    to: string,
+    subject: string,
+    body: string,
+    sendAt: Date,
+    fromAccount?: string,
+    attachments?: OutgoingAttachment[]
+  ) => void;
   /** Opens the app settings modal — reached from the mobile drawer. */
   onOpenSettings?: () => void;
   /** Shown in the mobile drawer footer, where the desktop top bar's name pill lived. */
@@ -280,6 +290,8 @@ export default function MailPane({
   // mobile-only chrome: burger drawer + a search field that opens on demand
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleCustom, setScheduleCustom] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const mobileSearchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -550,6 +562,44 @@ export default function MailPane({
       ? fromAccount || (activeAccount !== "all" ? activeAccount : accounts[0])
       : undefined;
 
+  const submitScheduled = (when: Date) => {
+    const list = allRecipients();
+    if (list.length === 0 || (!subject.trim() && !body.trim())) return;
+    onScheduleSend?.(
+      list.join(", "),
+      subject.trim(),
+      body.trim(),
+      when,
+      currentAccount(),
+      attached
+    );
+    setScheduleOpen(false);
+    setScheduleCustom("");
+    resetCompose();
+  };
+
+  /** Presets in the reader's local time. */
+  const schedulePresets = (): { label: string; at: Date }[] => {
+    const now = new Date();
+    const at = (d: Date, h: number, m = 0) => {
+      const x = new Date(d);
+      x.setHours(h, m, 0, 0);
+      return x;
+    };
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + ((8 - now.getDay()) % 7 || 7));
+    const out: { label: string; at: Date }[] = [];
+    if (now.getHours() < 8) out.push({ label: "This morning, 8 AM", at: at(now, 8) });
+    if (now.getHours() < 13) out.push({ label: "This afternoon, 1 PM", at: at(now, 13) });
+    if (now.getHours() < 18) out.push({ label: "This evening, 6 PM", at: at(now, 18) });
+    out.push({ label: "Tomorrow, 8 AM", at: at(tomorrow, 8) });
+    out.push({ label: "Tomorrow, 1 PM", at: at(tomorrow, 13) });
+    out.push({ label: "Monday, 8 AM", at: at(monday, 8) });
+    return out;
+  };
+
   const saveDraft = () => {
     const list = allRecipients();
     if (list.length === 0 && !subject.trim() && !body.trim()) return;
@@ -799,6 +849,64 @@ export default function MailPane({
             >
               Send ↗
             </button>
+            {onScheduleSend && (
+              <div className="relative">
+                <button
+                  onClick={() => setScheduleOpen((v) => !v)}
+                  title="Schedule send"
+                  aria-label="Schedule send"
+                  className={`rounded-lg border p-2 transition-colors ${
+                    scheduleOpen
+                      ? "border-(--color-clay)/50 bg-(--color-clay-soft) text-(--color-clay)"
+                      : "hairline text-(--color-ink-soft) hover:border-(--color-clay)/50 hover:text-(--color-clay)"
+                  }`}
+                >
+                  <ClockIcon className="h-4 w-4" />
+                </button>
+                {scheduleOpen && (
+                  <div className="rise-in absolute bottom-full left-0 z-30 mb-2 w-64 rounded-xl border hairline bg-white p-2 shadow-2xl">
+                    <p className="px-2 pt-1 pb-1.5 font-display text-[9px] font-medium uppercase tracking-[0.2em] text-(--color-ink-faint)">
+                      Send later
+                    </p>
+                    {schedulePresets().map((p) => (
+                      <button
+                        key={p.label}
+                        onClick={() => submitScheduled(p.at)}
+                        className="block w-full rounded-lg px-2 py-1.5 text-left text-xs font-medium hover:bg-(--color-paper)"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <div className="mt-1 border-t hairline pt-2">
+                      <p className="px-2 pb-1 font-display text-[9px] font-medium uppercase tracking-[0.2em] text-(--color-ink-faint)">
+                        Pick a time
+                      </p>
+                      <div className="flex items-center gap-1.5 px-1">
+                        <input
+                          type="datetime-local"
+                          value={scheduleCustom}
+                          min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+                            .toISOString()
+                            .slice(0, 16)}
+                          onChange={(e) => setScheduleCustom(e.target.value)}
+                          className="min-w-0 flex-1 rounded-lg border hairline bg-white px-2 py-1 text-xs outline-none focus:border-(--color-clay)/50"
+                        />
+                        <button
+                          onClick={() => {
+                            const d = new Date(scheduleCustom);
+                            if (!Number.isNaN(d.getTime())) submitScheduled(d);
+                          }}
+                          disabled={!scheduleCustom}
+                          className="shrink-0 rounded-lg bg-(--color-clay) px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+                        >
+                          Schedule
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <button
               onClick={saveDraft}
               className="rounded-lg border hairline px-3.5 py-2 text-[13px] font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
@@ -1341,9 +1449,9 @@ export default function MailPane({
                 closeDetailState();
                 onBack();
               }}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-(--color-ink-faint) transition-colors hover:text-(--color-ink)"
+              className="-ml-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 text-[15px] font-semibold text-(--color-ink-soft) transition-colors hover:bg-(--color-paper) hover:text-(--color-ink) lg:min-h-0 lg:text-xs lg:text-(--color-ink-faint)"
             >
-              ← Back
+              <span aria-hidden className="text-lg leading-none lg:text-xs">←</span> Back
             </button>
             <div className="relative flex items-center gap-0.5">
               <IconBtn

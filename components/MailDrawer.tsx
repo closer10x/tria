@@ -2,7 +2,34 @@
 
 import { useEffect } from "react";
 import { Folder } from "@/lib/types";
-import { GearIcon, MailIcon } from "./ui";
+import { ArchiveIcon, ClockIcon, GearIcon, MailIcon, PenIcon, TrashIcon } from "./ui";
+
+/** Sent has no icon in ui.tsx yet — a small paper plane to match the set. */
+function SendGlyph({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M14 2L2 6.8l5.2 2L9.2 14 14 2z" />
+      <path d="M7.2 8.8L14 2" />
+    </svg>
+  );
+}
+function InboxGlyph({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M2 9.5l1.6-5.2A1 1 0 0 1 4.6 3.5h6.8a1 1 0 0 1 1 .8L14 9.5" />
+      <path d="M2 9.5h3.5l.7 1.5h3.6l.7-1.5H14v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-3z" />
+    </svg>
+  );
+}
+
+const FOLDER_ICON: Record<Folder, (p: { className?: string }) => React.ReactElement> = {
+  inbox: InboxGlyph,
+  snoozed: ClockIcon,
+  drafts: PenIcon,
+  sent: SendGlyph,
+  archive: ArchiveIcon,
+  trash: TrashIcon,
+};
 
 /**
  * Mobile-only slide-in menu for the Mail pane. Consolidates what the desktop
@@ -100,6 +127,7 @@ export default function MailDrawer({
             {folders.map((f) => {
               const active = folder === f.key;
               const n = folderCount(f.key);
+              const Icon = FOLDER_ICON[f.key];
               return (
                 <button
                   key={f.key}
@@ -107,13 +135,18 @@ export default function MailDrawer({
                     onSelectFolder(f.key);
                     onClose();
                   }}
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
                     active
                       ? "bg-(--color-clay-soft) font-semibold text-(--color-clay)"
                       : "text-(--color-ink-soft) hover:bg-(--color-paper)"
                   }`}
                 >
-                  {f.label}
+                  <Icon
+                    className={`h-4 w-4 shrink-0 ${
+                      active ? "text-(--color-clay)/70" : "text-(--color-ink-faint)/70"
+                    }`}
+                  />
+                  <span className="min-w-0 flex-1">{f.label}</span>
                   {n > 0 && (
                     <span
                       className={`font-display text-[10px] ${

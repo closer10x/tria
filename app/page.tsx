@@ -23,6 +23,7 @@ import {
   apiSmartTask,
   apiSavedAccounts,
   apiSaveDraft,
+  apiScheduleSend,
   apiSend,
   SavedAccountInfo,
 } from "@/lib/mailApi";
@@ -243,6 +244,8 @@ export default function Home() {
   // emails of the accounts connected live this session; empty = demo data
   const [liveAccounts, setLiveAccounts] = useState<string[]>([]);
   const live = liveAccounts.length > 0;
+  // number of messages waiting to go out (badge only; the list lives server-side)
+  const [, setScheduledCount] = useState(0);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [attachPrompt, setAttachPrompt] = useState<Email | null>(null);
@@ -1160,6 +1163,44 @@ export default function Home() {
     });
   };
 
+  /** Queue a message for later — delivered server-side by the cron runner. */
+  const scheduleNewEmail = async (
+    to: string,
+    subject: string,
+    body: string,
+    sendAt: Date,
+    fromAccount?: string,
+    attachments?: OutgoingAttachment[]
+  ) => {
+    const withSig = settings.signature ? `${body}\n\n${settings.signature}` : body;
+    const account = fromAccount ?? liveAccounts[0] ?? settings.email;
+    if (!live) {
+      showToast("Connect an account to schedule mail");
+      return;
+    }
+    try {
+      await apiScheduleSend({
+        to,
+        subject,
+        text: withSig,
+        sendAt: sendAt.toISOString(),
+        account,
+        attachments,
+      });
+      const when = sendAt.toLocaleString([], {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      showToast(`🕒 Scheduled for ${when}`);
+      setScheduledCount((n) => n + 1);
+    } catch (err) {
+      showToast(String(err instanceof Error ? err.message : err));
+    }
+  };
+
   const sendNewEmail = (
     to: string,
     subject: string,
@@ -1464,6 +1505,7 @@ export default function Home() {
           onSelect={openEmail}
           onBack={() => setSelectedEmailId(null)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onScheduleSend={scheduleNewEmail}
           userName={settings.name}
           onMakeTask={startTaskFromEmail}
           onShareToThread={shareEmailToThread}

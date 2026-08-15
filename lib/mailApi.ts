@@ -296,3 +296,50 @@ export async function apiContacts(): Promise<Contact[]> {
     return [];
   }
 }
+
+/** Queue a message to be sent at a future time (server-side, via cron). */
+export async function apiScheduleSend(payload: {
+  to: string;
+  subject: string;
+  text: string;
+  sendAt: string; // ISO
+  account?: string;
+  attachments?: OutgoingAttachment[];
+}): Promise<{ id: string; sendAt: string }> {
+  const res = await fetch("/api/mail/scheduled", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as {
+    ok: boolean;
+    scheduled?: { id: string; sendAt: string };
+    error?: string;
+  };
+  if (!data.ok || !data.scheduled) throw new Error(data.error ?? "Couldn't schedule");
+  return data.scheduled;
+}
+
+export type ScheduledSummary = {
+  id: string;
+  account: string;
+  sendAt: string;
+  status: "pending" | "sending" | "sent" | "failed" | "cancelled";
+  lastError?: string;
+  payload: { to: string; subject: string; text: string; attachmentCount: number };
+};
+
+export async function apiScheduledList(): Promise<ScheduledSummary[]> {
+  const res = await fetch("/api/mail/scheduled");
+  const data = (await res.json()) as { ok: boolean; scheduled?: ScheduledSummary[] };
+  return data.scheduled ?? [];
+}
+
+export async function apiScheduledCancel(id: string): Promise<boolean> {
+  const res = await fetch(`/api/mail/scheduled?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  const data = (await res.json()) as { ok: boolean; cancelled?: boolean; error?: string };
+  if (!data.ok) throw new Error(data.error ?? "Couldn't cancel");
+  return Boolean(data.cancelled);
+}
