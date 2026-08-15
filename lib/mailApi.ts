@@ -281,3 +281,23 @@ export async function apiSend(payload: {
   const data = (await res.json()) as { ok: boolean; error?: string };
   if (!data.ok) throw new Error(data.error ?? "Send failed");
 }
+
+export type Contact = {
+  /** Always lowercase — the contacts route normalizes, and the compose
+   * autocomplete's case-insensitive matching depends on it. */
+  email: string;
+  name: string;
+  count: number;
+  lastUsed: number;
+};
+
+/** People you've emailed before, ranked for compose autocomplete. */
+export async function apiContacts(): Promise<Contact[]> {
+  try {
+    const res = await fetch("/api/mail/contacts");
+    const data = (await res.json()) as { ok: boolean; contacts?: Contact[] };
+    return data.contacts ?? [];
+  } catch {
+    return [];
+  }
+}

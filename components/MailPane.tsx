@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Email, Folder, OutgoingAttachment } from "@/lib/types";
+import { apiContacts, Contact } from "@/lib/mailApi";
 import {
   ArchiveIcon,
   Avatar,
@@ -281,6 +282,10 @@ export default function MailPane({
   const [recipients, setRecipients] = useState<string[]>([]);
   const [to, setTo] = useState("");
   const toInput = useRef<HTMLInputElement>(null);
+  // people you've emailed before, for To-field autocomplete
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [sugIndex, setSugIndex] = useState(0);
+  const [sugOpen, setSugOpen] = useState(true);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [fromAccount, setFromAccount] = useState<string>("");
@@ -334,6 +339,34 @@ export default function MailPane({
       setAttaching(false);
       if (fileInput.current) fileInput.current.value = "";
     }
+  };
+
+  // fetch the contact ranking once per compose session (server caches the scan)
+  useEffect(() => {
+    if (composing && contacts.length === 0)
+      apiContacts().then(setContacts).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composing]);
+
+  // Gmail-style suggestions: match name or address, hide already-added people
+  const suggestions = useMemo(() => {
+    const q = to.trim().toLowerCase();
+    if (!q) return [];
+    const taken = new Set(recipients.map((r) => r.toLowerCase()));
+    return contacts
+      .filter(
+        (c) =>
+          !taken.has(c.email) &&
+          (c.email.includes(q) || c.name.toLowerCase().includes(q))
+      )
+      .slice(0, 6);
+  }, [to, contacts, recipients]);
+
+  const pickSuggestion = (c: Contact) => {
+    setRecipients((prev) => [...prev, c.email]);
+    setTo("");
+    setSugIndex(0);
+    toInput.current?.focus();
   };
 
   // an undone send (or a reopened draft) puts its text back in the composer
@@ -559,7 +592,7 @@ export default function MailPane({
           )}
           <div
             onClick={() => toInput.current?.focus()}
-            className="mb-2 flex w-full flex-wrap items-center gap-1.5 border-b hairline px-1 py-1.5 focus-within:border-(--color-clay)/50"
+            className="relative mb-2 flex w-full flex-wrap items-center gap-1.5 border-b hairline px-1 py-1.5 focus-within:border-(--color-clay)/50"
           >
             {recipients.map((r, i) => (
               <span
@@ -594,10 +627,24 @@ export default function MailPane({
                   commitRecipients(parts.slice(0, -1).join(","));
                   setTo(parts[parts.length - 1].trimStart());
                 } else setTo(e.target.value);
+                setSugIndex(0);
+                setSugOpen(true);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === "Tab") {
-                  if (to.trim()) {
+                const showing = sugOpen && suggestions.length > 0;
+                if (e.key === "ArrowDown" && showing) {
+                  e.preventDefault();
+                  setSugIndex((i) => (i + 1) % suggestions.length);
+                } else if (e.key === "ArrowUp" && showing) {
+                  e.preventDefault();
+                  setSugIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+                } else if (e.key === "Escape" && showing) {
+                  setSugOpen(false);
+                } else if (e.key === "Enter" || e.key === "Tab") {
+                  if (showing) {
+                    e.preventDefault();
+                    pickSuggestion(suggestions[sugIndex]);
+                  } else if (to.trim()) {
                     e.preventDefault();
                     commitRecipients(to);
                     setTo("");
@@ -607,14 +654,60 @@ export default function MailPane({
                 }
               }}
               onBlur={() => {
-                if (to.trim()) {
-                  commitRecipients(to);
-                  setTo("");
-                }
+                // let a click on a suggestion land before committing raw text
+                setTimeout(() => {
+                  setSugOpen(false);
+                  setTo((cur) => {
+                    if (cur.trim()) {
+                      commitRecipients(cur);
+                      return "";
+                    }
+                    return cur;
+                  });
+                }, 150);
               }}
               placeholder={recipients.length ? "" : "To"}
               className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-sm outline-none placeholder:text-(--color-ink-faint)"
             />
+            {sugOpen && suggestions.length > 0 && (
+              <div className="absolute left-0 top-full z-30 mt-1 w-full overflow-hidden rounded-lg border hairline bg-white shadow-xl">
+                {suggestions.map((c, i) => (
+                  <button
+                    key={c.email}
+                    onMouseDown={(e) => {
+                      // mousedown beats the input's onBlur timeout
+                      e.preventDefault();
+                      pickSuggestion(c);
+                    }}
+                    onMouseEnter={() => setSugIndex(i)}
+                    className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+                      i === sugIndex ? "bg-(--color-clay-soft)" : "bg-white"
+                    }`}
+                  >
+                    <Avatar
+                      initials={(c.name || c.email)
+                        .split(/[\s@.]+/)
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((w) => w[0]?.toUpperCase() ?? "")
+                        .join("")}
+                      hue="bg-(--color-paper) text-(--color-ink-soft)"
+                      size="sm"
+                    />
+                    <span className="min-w-0">
+                      {c.name && (
+                        <span className="block truncate text-[13px] font-medium text-(--color-ink)">
+                          {c.name}
+                        </span>
+                      )}
+                      <span className="block truncate text-xs text-(--color-ink-faint)">
+                        {c.email}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <input
             value={subject}
