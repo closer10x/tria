@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, MailConfig, sessions } from "@/lib/mail/store";
 import { withImap } from "@/lib/mail/imap";
-import { cryptoReady, decrypt, encrypt } from "@/lib/server/crypto";
+import { credAad, cryptoReady, decrypt, encrypt } from "@/lib/server/crypto";
 import { loadCreds, saveCreds } from "@/lib/server/creds";
 import { Provider } from "@/lib/types";
 
@@ -26,15 +26,30 @@ export async function POST(req: NextRequest) {
       smtpPort: body.smtpPort ?? 465,
     };
   } else if (stored?.passwordEnc) {
-    // No password in the request — use the saved (encrypted) login.
-    cfg = {
-      user: stored.email,
-      pass: decrypt(stored.passwordEnc),
-      imapHost: stored.imapHost,
-      imapPort: stored.imapPort,
-      smtpHost: stored.smtpHost,
-      smtpPort: stored.smtpPort,
-    };
+    // No password in the request — use the saved (encrypted) login. The
+    // ciphertext is bound to email + hosts, so a tampered row fails closed.
+    try {
+      cfg = {
+        user: stored.email,
+        pass: decrypt(
+          stored.passwordEnc,
+          credAad(stored.email, stored.imapHost, stored.smtpHost)
+        ),
+        imapHost: stored.imapHost,
+        imapPort: stored.imapPort,
+        smtpHost: stored.smtpHost,
+        smtpPort: stored.smtpPort,
+      };
+    } catch {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Saved login can't be used with this account's current servers — re-enter the app password.",
+        },
+        { status: 401 }
+      );
+    }
   }
   if (!cfg) {
     return NextResponse.json(
@@ -69,7 +84,10 @@ export async function POST(req: NextRequest) {
         imapPort: cfg.imapPort,
         smtpHost: cfg.smtpHost,
         smtpPort: cfg.smtpPort,
-        passwordEnc: body.pass ? encrypt(cfg.pass) : existing?.passwordEnc,
+        passwordEnc: encrypt(
+          cfg.pass,
+          credAad(id, cfg.imapHost, cfg.smtpHost)
+        ),
       },
     ];
     if (!creds.connectedAccountIds.includes(id)) {

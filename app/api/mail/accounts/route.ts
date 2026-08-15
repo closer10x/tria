@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, getAccounts, sessions } from "@/lib/mail/store";
+import { loadCreds, saveCreds } from "@/lib/server/creds";
 
 /** List the session's connected accounts. */
 export async function GET(req: NextRequest) {
@@ -16,6 +17,19 @@ export async function DELETE(req: NextRequest) {
     if (account) accounts.delete(account);
     else accounts.clear();
     if (accounts.size === 0 && token) sessions.delete(token);
+  }
+  // a deliberate disconnect also opts the account out of auto-restore
+  try {
+    const creds = await loadCreds();
+    const remaining = account
+      ? creds.connectedAccountIds.filter((x) => x !== account)
+      : [];
+    if (remaining.length !== creds.connectedAccountIds.length) {
+      creds.connectedAccountIds = remaining;
+      await saveCreds(creds);
+    }
+  } catch {
+    // non-fatal: session disconnect still succeeded
   }
   return NextResponse.json({ ok: true, accounts: Array.from(accounts?.keys() ?? []) });
 }

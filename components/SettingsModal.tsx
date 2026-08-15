@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Provider, Settings } from "@/lib/types";
+import { SavedAccountInfo } from "@/lib/mailApi";
 import { GearIcon, MailIcon } from "./ui";
 
 const providerPresets: Record<
@@ -103,21 +104,27 @@ const inputCls =
 
 export default function SettingsModal({
   settings,
+  savedAccounts,
   connectedAccounts,
   connecting,
   connectError,
   onChange,
   onConnect,
   onDisconnect,
+  onSaveAccount,
+  onDeleteSavedAccount,
   onClose,
 }: {
   settings: Settings;
+  savedAccounts: SavedAccountInfo[];
   connectedAccounts: string[];
   connecting: boolean;
   connectError: string | null;
   onChange: (patch: Partial<Settings>) => void;
   onConnect: () => void;
   onDisconnect: (account?: string) => void;
+  onSaveAccount: () => void;
+  onDeleteSavedAccount: (id: string) => void;
   onClose: () => void;
 }) {
   const connected = connectedAccounts.length > 0;
@@ -129,22 +136,24 @@ export default function SettingsModal({
     onChange({ provider: p, ...hosts });
   };
 
-  const saveAccount = () => {
-    if (!settings.email.trim()) return;
-    if (settings.accounts.some((a) => a.email === settings.email)) return;
+  // server-saved accounts first, then any local-only leftovers
+  const savedEmails = new Set(savedAccounts.map((a) => a.email));
+  const localOnly = settings.accounts.filter((a) => !savedEmails.has(a.email));
+  const selectedSaved = savedAccounts.find((a) => a.email === settings.email);
+
+  const selectSaved = (a: SavedAccountInfo) => {
     onChange({
-      accounts: [
-        ...settings.accounts,
-        {
-          id: `acc${Date.now() % 100000}`,
-          email: settings.email,
-          provider: settings.provider,
-        },
-      ],
+      email: a.email,
+      provider: a.provider,
+      imapHost: a.imapHost,
+      imapPort: a.imapPort,
+      smtpHost: a.smtpHost,
+      smtpPort: a.smtpPort,
+      password: "",
     });
   };
 
-  const selectAccount = (id: string) => {
+  const selectLocal = (id: string) => {
     const acc = settings.accounts.find((a) => a.id === id);
     if (!acc) return;
     const { label: _l, note: _n, ...hosts } = providerPresets[acc.provider];
@@ -273,13 +282,48 @@ export default function SettingsModal({
                 </Field>
               )}
 
-              {settings.accounts.length > 0 && (
+              {(savedAccounts.length > 0 || localOnly.length > 0) && (
                 <Field label="Your accounts">
                   <div className="space-y-1">
-                    {settings.accounts.map((a) => (
+                    {savedAccounts.map((a) => (
+                      <div
+                        key={a.id}
+                        className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                          settings.email === a.email
+                            ? "border-(--color-clay) bg-(--color-clay-soft)/40"
+                            : "hairline hover:border-(--color-ink-faint)"
+                        }`}
+                      >
+                        <button
+                          onClick={() => selectSaved(a)}
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        >
+                          <MailIcon className="h-3.5 w-3.5 shrink-0 text-(--color-ink-faint)" />
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {a.email}
+                          </span>
+                          {a.hasPassword && (
+                            <span className="shrink-0 rounded-full bg-(--color-sage)/15 px-1.5 py-0.5 font-display text-[8px] font-semibold uppercase tracking-[0.12em] text-(--color-sage)">
+                              Saved login
+                            </span>
+                          )}
+                          <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.14em] text-(--color-ink-faint)">
+                            {providerPresets[a.provider].label}
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => onDeleteSavedAccount(a.id)}
+                          title="Remove saved account"
+                          className="shrink-0 rounded-md px-1 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    {localOnly.map((a) => (
                       <button
                         key={a.id}
-                        onClick={() => selectAccount(a.id)}
+                        onClick={() => selectLocal(a.id)}
                         className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
                           settings.email === a.email
                             ? "border-(--color-clay) bg-(--color-clay-soft)/40"
@@ -328,18 +372,28 @@ export default function SettingsModal({
                 <input
                   type="password"
                   className={inputCls}
-                  placeholder="••••••••••••"
+                  placeholder={
+                    selectedSaved?.hasPassword
+                      ? "Saved — leave blank to use stored login"
+                      : "••••••••••••"
+                  }
                   value={settings.password}
                   onChange={(e) => onChange({ password: e.target.value })}
                 />
               </Field>
+              {selectedSaved?.hasPassword && !settings.password && (
+                <p className="text-[11px] leading-relaxed text-(--color-sage)">
+                  This account has a saved login — hit Connect and the stored
+                  password is used automatically.
+                </p>
+              )}
               {providerPresets[settings.provider].note && (
                 <p className="text-[11px] leading-relaxed text-(--color-ink-faint)">
                   {providerPresets[settings.provider].note}
                 </p>
               )}
               <button
-                onClick={saveAccount}
+                onClick={onSaveAccount}
                 className="w-full rounded-lg border border-dashed hairline px-3 py-2 text-xs font-medium text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
               >
                 + Save to my accounts

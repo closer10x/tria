@@ -14,7 +14,11 @@ import {
   apiConnect,
   apiDisconnect,
   apiMessages,
+  apiSavedAccountDelete,
+  apiSavedAccountSave,
+  apiSavedAccounts,
   apiSend,
+  SavedAccountInfo,
 } from "@/lib/mailApi";
 import {
   loadState,
@@ -185,16 +189,32 @@ export default function Home() {
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [attachPrompt, setAttachPrompt] = useState<Email | null>(null);
+  // accounts persisted in Supabase (passwords encrypted server-side)
+  const [savedAccounts, setSavedAccounts] = useState<SavedAccountInfo[]>([]);
 
-  // restore accounts already connected in this session (cookie survives reloads)
+  // Restore live mail on load: first from the in-memory session (cookie survives
+  // reloads), otherwise reconnect saved logins that were live last time.
   useEffect(() => {
-    apiAccounts().then((accs) => {
+    (async () => {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      let accs = await apiAccounts();
+      const saved = await apiSavedAccounts().catch(() => null);
+      if (saved) setSavedAccounts(saved.accounts);
+      if (accs.length === 0 && saved) {
+        const restorable = saved.connectedAccountIds.filter((id) =>
+          saved.accounts.some((a) => a.id === id && a.hasPassword)
+        );
+        for (const id of restorable) {
+          const res = await apiConnect({ accountId: id });
+          if (res.ok && res.accounts) accs = res.accounts;
+        }
+      }
       if (accs.length === 0) return;
       setLiveAccounts(accs);
-      apiMessages("inbox", Intl.DateTimeFormat().resolvedOptions().timeZone)
+      apiMessages("inbox", tz)
         .then(setEmails)
         .catch(() => {});
-    });
+    })();
   }, []);
 
   const showToast = useCallback((msg: string) => {
@@ -314,9 +334,11 @@ export default function Home() {
   const connectAccount = async () => {
     setConnecting(true);
     setConnectError(null);
+    // blank password → the server falls back to the saved (encrypted) login
     const res = await apiConnect({
       user: settings.email,
-      pass: settings.password,
+      pass: settings.password || undefined,
+      provider: settings.provider,
       imapHost: settings.imapHost,
       imapPort: settings.imapPort,
       smtpHost: settings.smtpHost,
@@ -329,10 +351,16 @@ export default function Home() {
     }
     const accounts = res.accounts ?? [settings.email];
     setLiveAccounts(accounts);
+    // the server persisted the login — refresh the saved list and drop the
+    // plaintext password from client state
+    apiSavedAccounts()
+      .then((s) => setSavedAccounts(s.accounts))
+      .catch(() => {});
     // remember the account in settings for one-click reconnects
     if (!settings.accounts.some((a) => a.email === settings.email)) {
       setSettings((s) => ({
         ...s,
+        password: "",
         accounts: [
           ...s.accounts,
           {
@@ -342,6 +370,8 @@ export default function Home() {
           },
         ],
       }));
+    } else {
+      setSettings((s) => ({ ...s, password: "" }));
     }
     setSelectedEmailId(null);
     try {
@@ -369,6 +399,39 @@ export default function Home() {
       setEmails((prev) => prev.filter((e) => !e.accountId || e.accountId !== account));
       showToast(`Disconnected ${account}`);
     }
+  };
+
+  const saveAccountToServer = async () => {
+    if (!settings.email.trim() || !settings.imapHost.trim()) {
+      showToast("Enter an email and IMAP host first");
+      return;
+    }
+    try {
+      const res = await apiSavedAccountSave({
+        email: settings.email,
+        provider: settings.provider,
+        imapHost: settings.imapHost,
+        imapPort: settings.imapPort,
+        smtpHost: settings.smtpHost,
+        smtpPort: settings.smtpPort,
+        password: settings.password || undefined,
+      });
+      setSavedAccounts(res.accounts);
+      if (settings.password) setSettings((s) => ({ ...s, password: "" }));
+      showToast(`Saved ${settings.email}`);
+    } catch (err) {
+      showToast(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const deleteSavedAccount = async (id: string) => {
+    const res = await apiSavedAccountDelete(id);
+    setSavedAccounts(res.accounts);
+    setSettings((s) => ({
+      ...s,
+      accounts: s.accounts.filter((a) => a.email !== id),
+    }));
+    showToast(`Removed ${id}`);
   };
 
   const cycleStatus = (id: string) => {
@@ -920,12 +983,15 @@ export default function Home() {
       {settingsOpen && (
         <SettingsModal
           settings={settings}
+          savedAccounts={savedAccounts}
           connectedAccounts={liveAccounts}
           connecting={connecting}
           connectError={connectError}
           onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
           onConnect={connectAccount}
           onDisconnect={disconnectAccount}
+          onSaveAccount={saveAccountToServer}
+          onDeleteSavedAccount={deleteSavedAccount}
           onClose={() => setSettingsOpen(false)}
         />
       )}

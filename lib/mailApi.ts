@@ -1,12 +1,16 @@
-import { Email, Folder } from "./types";
+import { Email, Folder, Provider } from "./types";
 
 type ConnectPayload = {
-  user: string;
-  pass: string;
-  imapHost: string;
-  imapPort: number;
-  smtpHost: string;
-  smtpPort: number;
+  /** Full-credential connect. Omit pass to fall back to the saved login. */
+  user?: string;
+  pass?: string;
+  imapHost?: string;
+  imapPort?: number;
+  smtpHost?: string;
+  smtpPort?: number;
+  provider?: Provider;
+  /** Connect a saved account by its id (email) using the stored password. */
+  accountId?: string;
 };
 
 export async function apiConnect(
@@ -51,6 +55,66 @@ export async function apiDisconnect(account?: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/** An account persisted in Supabase — password stays server-side, encrypted. */
+export type SavedAccountInfo = {
+  id: string;
+  email: string;
+  provider: Provider;
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  hasPassword: boolean;
+};
+
+export type SavedAccountsResult = {
+  accounts: SavedAccountInfo[];
+  /** Accounts that were live last session — candidates for auto-restore. */
+  connectedAccountIds: string[];
+};
+
+export async function apiSavedAccounts(): Promise<SavedAccountsResult> {
+  const res = await fetch("/api/saved-accounts");
+  const data = (await res.json()) as { ok: boolean } & Partial<SavedAccountsResult>;
+  return {
+    accounts: data.accounts ?? [],
+    connectedAccountIds: data.connectedAccountIds ?? [],
+  };
+}
+
+export async function apiSavedAccountSave(payload: {
+  email: string;
+  provider: Provider;
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  password?: string;
+}): Promise<SavedAccountsResult> {
+  const res = await fetch("/api/saved-accounts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { ok: boolean; error?: string } & Partial<SavedAccountsResult>;
+  if (!data.ok) throw new Error(data.error ?? "Save failed");
+  return {
+    accounts: data.accounts ?? [],
+    connectedAccountIds: data.connectedAccountIds ?? [],
+  };
+}
+
+export async function apiSavedAccountDelete(id: string): Promise<SavedAccountsResult> {
+  const res = await fetch(`/api/saved-accounts?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  const data = (await res.json()) as { ok: boolean } & Partial<SavedAccountsResult>;
+  return {
+    accounts: data.accounts ?? [],
+    connectedAccountIds: data.connectedAccountIds ?? [],
+  };
 }
 
 export async function apiMessages(
