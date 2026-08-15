@@ -6,6 +6,12 @@ import {
   LlmRefusal,
   NO_PROVIDER_MSG,
 } from "@/lib/server/llm";
+import {
+  SMART_TASK_SCHEMA,
+  SMART_TASK_SYSTEM,
+  type SmartTaskDraft,
+} from "./prompt";
+export type { SmartTaskDraft };
 
 /**
  * Turn an email into a smart task by reading it: one checklist item per thing
@@ -14,53 +20,6 @@ import {
  */
 
 export const maxDuration = 60;
-
-const SCHEMA = {
-  type: "object",
-  properties: {
-    title: {
-      type: "string",
-      description:
-        "Imperative summary of what the recipient has to do, under 60 characters.",
-    },
-    note: {
-      type: "string",
-      description: "One short line of context. Empty string if none is needed.",
-    },
-    priority: { type: "string", enum: ["high", "medium", "low"] },
-    due: {
-      type: "string",
-      description:
-        "Deadline the sender asked for, as they phrased it (e.g. 'Friday EOD'). Empty string if none.",
-    },
-    checklist: {
-      type: "array",
-      description:
-        "One item per distinct thing being requested. Split compound asks apart. 1-6 items.",
-      items: {
-        type: "object",
-        properties: {
-          label: {
-            type: "string",
-            description: "A single concrete action, imperative, under 80 characters.",
-          },
-        },
-        required: ["label"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["title", "note", "priority", "due", "checklist"],
-  additionalProperties: false,
-} as const;
-
-export type SmartTaskDraft = {
-  title: string;
-  note: string;
-  priority: "high" | "medium" | "low";
-  due: string;
-  checklist: { label: string }[];
-};
 
 export async function POST(req: NextRequest) {
   if (!(await llmProvider())) {
@@ -81,9 +40,8 @@ export async function POST(req: NextRequest) {
   try {
     const text = await llmChat({
       maxTokens: 1024,
-      schema: SCHEMA,
-      system:
-        "You turn an email into a task for the person who received it. Read the whole message and list every distinct thing the sender is asking for as its own checklist item — a compound sentence asking for two things is two items. Ignore pleasantries and signatures. Use the recipient's perspective: the actions are things they must do.",
+      schema: SMART_TASK_SCHEMA,
+      system: SMART_TASK_SYSTEM,
       messages: [
         {
           role: "user",
