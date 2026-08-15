@@ -62,8 +62,14 @@ export async function diagnoseBasicAuth(cfg: {
 }
 
 export function mailErrorMessage(e: unknown, provider?: Provider): string {
-  const err = (e ?? {}) as MailError;
+  const err = (e ?? {}) as MailError & { response?: string };
   const generic = !err.message || /^command failed$/i.test(err.message);
+
+  // SMTP AUTH switched off for the whole tenant blocks sending even when the
+  // OAuth token and scopes are correct — reading over IMAP still works.
+  const raw = `${err.response ?? ""} ${err.message ?? ""}`;
+  if (/SmtpClientAuthentication is disabled|5\.7\.139/i.test(raw))
+    return "Microsoft is refusing to send because SMTP AUTH is turned off for your whole tenant — reading mail still works. An admin needs to enable it: Microsoft 365 admin centre → Settings → Org settings → Modern authentication → tick Authenticated SMTP, then allow it on this mailbox under Users → the mailbox → Mail → Manage email apps (aka.ms/smtp_auth_disabled).";
 
   if (err.authenticationFailed || err.serverResponseCode === "AUTHENTICATIONFAILED") {
     return (

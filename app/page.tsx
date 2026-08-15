@@ -918,6 +918,9 @@ export default function Home() {
           onToggleStar={toggleStar}
           onMarkUnread={markUnread}
           onFolderChange={loadFolder}
+          accountLabels={Object.fromEntries(
+            savedAccounts.filter((a) => a.label).map((a) => [a.email, a.label!])
+          )}
           onSaveDraft={saveDraft}
           onRefresh={refreshFolder}
           refreshing={refreshing}

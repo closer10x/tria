@@ -14,6 +14,8 @@ export type StoredAccount = {
   id: string; // the account email address
   email: string;
   provider: Provider;
+  /** What to call this account in the UI. Falls back to the address. */
+  label?: string;
   /** "oauth" accounts authenticate with a token instead of a password. */
   authType?: "password" | "oauth";
   oauthProvider?: "microsoft" | "google";

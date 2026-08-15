@@ -77,6 +77,8 @@ export type SavedAccountInfo = {
   id: string;
   email: string;
   provider: Provider;
+  /** User-set name for this account; the UI falls back to the address. */
+  label?: string;
   imapHost: string;
   imapPort: number;
   smtpHost: string;
@@ -110,6 +112,7 @@ export async function apiSavedAccountSave(payload: {
   smtpHost: string;
   smtpPort: number;
   password?: string;
+  label?: string;
 }): Promise<SavedAccountsResult> {
   const res = await fetch("/api/saved-accounts", {
     method: "POST",
@@ -190,6 +193,22 @@ export async function apiAction(
   });
   const data = (await res.json()) as { ok: boolean; error?: string };
   if (!data.ok) throw new Error(data.error ?? "Action failed");
+}
+
+/** Rename one saved account without touching its credentials. */
+export async function apiSavedAccountLabel(
+  account: SavedAccountInfo,
+  label: string
+): Promise<SavedAccountsResult> {
+  return apiSavedAccountSave({
+    email: account.email,
+    provider: account.provider,
+    imapHost: account.imapHost,
+    imapPort: account.imapPort,
+    smtpHost: account.smtpHost,
+    smtpPort: account.smtpPort,
+    label,
+  });
 }
 
 /** Save a draft into the account's Drafts mailbox. Returns its new uid. */

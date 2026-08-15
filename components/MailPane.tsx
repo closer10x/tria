@@ -55,7 +55,12 @@ export function accountColor(accounts: string[], accountId: string): string {
 }
 
 /** "jon.garcia.a@gmail.com" → "jon.garcia.a" — enough to tell accounts apart. */
-const accountLabel = (email: string) => email.split("@")[0];
+/**
+ * What to call an account in the switcher: the name set in Settings, else the
+ * full address — the local part alone ("info") doesn't say which mailbox.
+ */
+const accountLabel = (email: string, labels?: Record<string, string>) =>
+  labels?.[email]?.trim() || email;
 
 /** Mock AI query understanding — later this becomes a real Claude call. */
 function aiSearch(
@@ -179,6 +184,7 @@ function IconBtn({
 export default function MailPane({
   emails,
   accounts,
+  accountLabels,
   selectedId,
   onSelect,
   onBack,
@@ -204,6 +210,8 @@ export default function MailPane({
 }: {
   emails: Email[];
   accounts: string[]; // live-connected account emails; empty = demo data
+  /** email → the name set in Settings; falls back to the address */
+  accountLabels?: Record<string, string>;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onBack: () => void;
@@ -406,7 +414,7 @@ export default function MailPane({
                         className="h-2 w-2 shrink-0 rounded-full"
                         style={{ background: accountColor(accounts, a) }}
                       />
-                      {accountLabel(a)}
+                      {accountLabel(a, accountLabels)}
                     </button>
                   );
                 })}
@@ -476,7 +484,7 @@ export default function MailPane({
                     className="h-2 w-2 shrink-0 rounded-full"
                     style={{ background: accountColor(accounts, a) }}
                   />
-                  {accountLabel(a)}
+                  {accountLabel(a, accountLabels)}
                   {accountUnread(a) > 0 && (
                     <span
                       className={

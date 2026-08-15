@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
     smtpHost?: string;
     smtpPort?: number;
     password?: string;
+    label?: string;
   };
   if (!body.email?.trim() || !body.imapHost?.trim()) {
     return NextResponse.json(
@@ -42,6 +43,11 @@ export async function POST(req: NextRequest) {
     id,
     email: id,
     provider: body.provider ?? existing?.provider ?? "custom",
+    // empty string clears the label back to the address
+    label:
+      body.label === undefined
+        ? existing?.label
+        : body.label.trim() || undefined,
     imapHost,
     imapPort: body.imapPort ?? existing?.imapPort ?? 993,
     smtpHost,

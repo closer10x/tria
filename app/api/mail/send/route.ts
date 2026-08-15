@@ -68,6 +68,13 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ok: true });
   } catch (e) {
+    // log the raw failure so production sends are diagnosable from the logs
+    console.error("send failed", {
+      account: cfg.user,
+      smtp: `${cfg.smtpHost}:${cfg.smtpPort}`,
+      response: (e as { response?: string }).response,
+      message: e instanceof Error ? e.message : String(e),
+    });
     return NextResponse.json(
       { ok: false, error: mailErrorMessage(e) },
       { status: 500 }
