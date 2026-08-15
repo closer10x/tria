@@ -75,6 +75,35 @@ newer commit can lose the alias and take the routes down.
 > `all_except_custom_domains` exempts the production alias) until a real login
 > lands.
 
+## AI provider
+
+The `/api/ai` routes take the first key that works: `ANTHROPIC_API_KEY`
+(native Claude API), then `OPENROUTER_API_KEY`. Both are tried per request —
+a key one provider rejects falls through to the other instead of taking every
+AI feature down, so setting both is the cheapest insurance against a dead key.
+
+**Check the deployed key without guessing:**
+
+```bash
+curl https://<deployment>/api/ai/health
+```
+
+It reports, per provider, whether a key is configured and whether the provider
+actually accepts it — free auth-only calls, no completion is bought, and
+nothing about the key itself is in the response. 200 when at least one
+provider answers, 503 when the AI is down. A 401 here is always one of:
+
+- the key is revoked or belongs to another account — issue a new one
+  ([OpenRouter](https://openrouter.ai/keys), [Anthropic](https://console.anthropic.com/settings/keys))
+- it was set for the wrong environment — Production is its own value, and
+  Preview/Development do not fall back to it
+- it was set but not redeployed — env vars are read at build time into the
+  new deployment, so an existing one keeps the old value forever
+
+Keys are normalised before use (surrounding quotes, a pasted `Bearer ` prefix,
+stray whitespace), because each of those turns a valid key into an
+indistinguishable 401.
+
 ## Supabase
 
 Tasks, threads, AI chat, and settings persist to Supabase (project `TRIA`).
@@ -91,8 +120,8 @@ helpers rather than load-mutate-save — every dev server and production share
 this one row.
 
 Vercel env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-`SUPABASE_SERVICE_ROLE_KEY`, `TRIA_ENC_KEY`, and `ANTHROPIC_API_KEY` for the AI
-routes.
+`SUPABASE_SERVICE_ROLE_KEY`, `TRIA_ENC_KEY`, and `ANTHROPIC_API_KEY` /
+`OPENROUTER_API_KEY` for the AI routes (see **AI provider** above).
 
 ## Structure
 
