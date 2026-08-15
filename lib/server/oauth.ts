@@ -1,7 +1,12 @@
 import { createHash, randomBytes } from "crypto";
 import { Provider } from "@/lib/types";
 import { credAad, cryptoReady, decrypt, encrypt } from "@/lib/server/crypto";
-import { loadCreds, saveCreds, StoredAccount } from "@/lib/server/creds";
+import {
+  loadCreds,
+  mergeAccount,
+  saveCreds,
+  StoredAccount,
+} from "@/lib/server/creds";
 
 /**
  * OAuth sign-in for mail accounts (XOAUTH2).
@@ -294,17 +299,19 @@ export async function getAccessToken(accountId: string): Promise<string> {
       tok.error_description ?? `${accountId} needs to sign in again.`
     );
 
-  const updated: StoredAccount = {
-    ...account,
+  // Merge this one account's tokens in a single statement. Writing the whole
+  // document back would revert every account added or changed since the read
+  // above — with several dev servers and production sharing one row, that is
+  // how a saved account disappears.
+  await mergeAccount(accountId, {
     accessTokenEnc: encrypt(tok.access_token, aad),
     accessTokenExpiresAt: Date.now() + (tok.expires_in ?? 3600) * 1000,
-    // providers may hand back a rotated refresh token
-    refreshTokenEnc: tok.refresh_token
-      ? encrypt(tok.refresh_token, aad)
-      : account.refreshTokenEnc,
-  };
-  creds.accounts = creds.accounts.map((a) => (a.id === accountId ? updated : a));
-  await saveCreds(creds);
+    // providers may hand back a rotated refresh token; keep the old one
+    // otherwise rather than merging an undefined over it
+    ...(tok.refresh_token
+      ? { refreshTokenEnc: encrypt(tok.refresh_token, aad) }
+      : {}),
+  });
   return tok.access_token;
 }
 
@@ -348,14 +355,10 @@ export async function getGraphAccessToken(accountId: string): Promise<string> {
 
   // Microsoft may rotate the refresh token on any redemption; dropping the new
   // one would strand the account at the next refresh.
-  if (tok.refresh_token) {
-    creds.accounts = creds.accounts.map((a) =>
-      a.id === accountId
-        ? { ...a, refreshTokenEnc: encrypt(tok.refresh_token!, aad) }
-        : a
-    );
-    await saveCreds(creds);
-  }
+  if (tok.refresh_token)
+    await mergeAccount(accountId, {
+      refreshTokenEnc: encrypt(tok.refresh_token, aad),
+    });
   return tok.access_token;
 }
 
