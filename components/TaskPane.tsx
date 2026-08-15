@@ -59,6 +59,48 @@ function StatusRing({
   );
 }
 
+/** Note log inside an expanded task: who said what, when, plus an input. */
+function TaskNotes({
+  task,
+  onAddNote,
+}: {
+  task: Task;
+  onAddNote: (taskId: string, text: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const submit = () => {
+    if (!draft.trim()) return;
+    onAddNote(task.id, draft.trim());
+    setDraft("");
+  };
+  return (
+    <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
+      {(task.notes?.length ?? 0) > 0 && (
+        <div className="mb-2 space-y-1.5 border-l-2 border-(--color-line) pl-2.5">
+          {task.notes!.map((n) => (
+            <div key={n.id}>
+              <p className="text-[10px] text-(--color-ink-faint)">
+                <span className="font-bold text-(--color-clay)">{n.author}</span>{" "}
+                · {n.at}
+              </p>
+              <p className="text-xs leading-relaxed text-(--color-ink-soft)">
+                {n.text}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder="Add a note…"
+        className="w-full rounded-lg border hairline bg-white px-2.5 py-1.5 text-xs outline-none placeholder:text-(--color-ink-faint) focus:border-(--color-clay)/40"
+      />
+    </div>
+  );
+}
+
 export default function TaskPane({
   tasks,
   emails,
@@ -72,6 +114,7 @@ export default function TaskPane({
   onDropEmail,
   onTogglePin,
   onDelete,
+  onAddNote,
   onBrainDump,
 }: {
   tasks: Task[];
@@ -86,6 +129,8 @@ export default function TaskPane({
   onDropEmail: (emailId: string) => void;
   onTogglePin: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Append a note to the task's log — the page stamps author and time. */
+  onAddNote: (taskId: string, text: string) => void;
   /** Optional until the page wires it — the dump bar hides when absent. */
   onBrainDump?: (drafts: ParsedTaskDraft[]) => void;
 }) {
@@ -308,6 +353,13 @@ export default function TaskPane({
                                 </span>
                               ))}
                             </div>
+                          )}
+
+                          {isOpen && (
+                            <TaskNotes
+                              task={task}
+                              onAddNote={onAddNote}
+                            />
                           )}
 
                           {isOpen && task.checklist.length > 0 && (

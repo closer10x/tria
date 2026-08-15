@@ -20,6 +20,7 @@ type TaskRow = {
   created_at_label: string | null;
   position: number;
   pinned: boolean;
+  notes: Task["notes"] | null;
 };
 
 const taskToRow = (t: Task, position: number): TaskRow => ({
@@ -35,6 +36,7 @@ const taskToRow = (t: Task, position: number): TaskRow => ({
   created_at_label: t.createdAt ?? null,
   position,
   pinned: t.pinned ?? false,
+  notes: t.notes ?? [],
 });
 
 const rowToTask = (r: TaskRow): Task => ({
@@ -49,6 +51,7 @@ const rowToTask = (r: TaskRow): Task => ({
   attachments: r.attachments ?? undefined,
   createdAt: r.created_at_label ?? "",
   pinned: r.pinned ?? false,
+  notes: r.notes ?? undefined,
 });
 
 export type PersistedState = {

@@ -80,6 +80,9 @@ export type Settings = {
 
 export type ChecklistItem = { id: string; label: string; done: boolean };
 
+/** A note left on a task — logged with who wrote it and when. */
+export type TaskNote = { id: string; author: string; text: string; at: string };
+
 export type TaskStatus = "todo" | "doing" | "done";
 export type TaskPriority = "high" | "medium" | "low";
 
@@ -97,6 +100,8 @@ export type Task = {
   /** Pinned tasks sort above the rest. */
   pinned?: boolean;
   attachments?: FileRef[];
+  /** Running log of user-written notes, newest last. */
+  notes?: TaskNote[];
 };
 
 export type Attachment =

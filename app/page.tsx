@@ -1109,6 +1109,30 @@ export default function Home() {
     setPendingAttachment(null);
   };
 
+  /** Append a note to a task, stamped with this device's identity and time. */
+  const addTaskNote = (taskId: string, text: string) => {
+    const author = chatName || settings.name || "Someone";
+    const at = new Date().toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              notes: [
+                ...(t.notes ?? []),
+                { id: nextId("n"), author, text, at },
+              ],
+            }
+          : t
+      )
+    );
+  };
+
   const setThreadArchived = (id: string, archived: boolean) => {
     setThreads((prev) =>
       prev.map((t) => (t.id === id ? { ...t, archived } : t))
@@ -1248,6 +1272,7 @@ export default function Home() {
           onDropEmail={dropEmailToTasks}
           onTogglePin={togglePinTask}
           onDelete={deleteTask}
+          onAddNote={addTaskNote}
           onBrainDump={addBrainDumpTasks}
         />
         </div>
