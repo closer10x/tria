@@ -118,7 +118,14 @@ export async function mergeAccount(
   if (error) throw new Error(`Failed to update account: ${error.message}`);
 }
 
-/** Mark an account connected (or not) without touching the accounts array. */
+/**
+ * Mark an account connected (or not) without touching the accounts array.
+ *
+ * Connecting an id with no account record is ignored — a dangling entry is
+ * skipped silently by resolveAllAccounts, so it would sit in the store
+ * invisibly rather than failing. Disconnecting is always allowed, so a stale
+ * id can be cleaned up even after its account record is gone.
+ */
 export async function setConnected(
   id: string,
   connected: boolean
