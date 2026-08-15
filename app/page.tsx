@@ -192,7 +192,9 @@ export default function Home() {
       if (saved) setSavedAccounts(saved.accounts);
       if (accs.length === 0 && saved) {
         const restorable = saved.connectedAccountIds.filter((id) =>
-          saved.accounts.some((a) => a.id === id && a.hasPassword)
+          // OAuth accounts reconnect from their stored refresh token, so they
+          // are restorable too even though they have no password
+          saved.accounts.some((a) => a.id === id && (a.hasPassword || a.isOAuth))
         );
         for (const id of restorable) {
           const res = await apiConnect({ accountId: id });
