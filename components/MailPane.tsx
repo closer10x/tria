@@ -485,6 +485,21 @@ export default function MailPane({
       : recipients;
   };
 
+  /**
+   * Empty the composer. Every exit path must go through this — leaving the
+   * committed recipient pills behind silently pre-addressed the *next*
+   * message to the previous one's recipients.
+   */
+  const resetCompose = () => {
+    setComposing(false);
+    setAttached([]);
+    setRecipients([]);
+    setTo("");
+    setSubject("");
+    setBody("");
+    setDraftUid(undefined);
+  };
+
   const submitCompose = () => {
     const list = allRecipients();
     if (list.length === 0 || (!subject.trim() && !body.trim())) return;
@@ -497,12 +512,7 @@ export default function MailPane({
         : undefined,
       attached
     );
-    setComposing(false);
-    setAttached([]);
-    setTo("");
-    setSubject("");
-    setBody("");
-    setDraftUid(undefined);
+    resetCompose();
     setFolder("sent");
   };
 
@@ -515,12 +525,7 @@ export default function MailPane({
     const list = allRecipients();
     if (list.length === 0 && !subject.trim() && !body.trim()) return;
     onSaveDraft(list.join(", "), subject.trim(), body.trim(), currentAccount());
-    setComposing(false);
-    setAttached([]);
-    setTo("");
-    setSubject("");
-    setBody("");
-    setDraftUid(undefined);
+    resetCompose();
     setFolder("drafts");
   };
 
@@ -552,7 +557,7 @@ export default function MailPane({
               New message
             </p>
             <button
-              onClick={() => setComposing(false)}
+              onClick={resetCompose}
               className="text-xs font-medium text-(--color-ink-faint) hover:text-(--color-ink)"
             >
               Discard
