@@ -33,6 +33,7 @@ import {
   syncTasks,
   syncThreads,
 } from "@/lib/persist";
+import { clearMailCache, loadMailCache, saveMailCache } from "@/lib/mailCache";
 import {
   AiMessage,
   Attachment,
@@ -59,6 +60,7 @@ const defaultSettings: Settings = {
   password: "",
   timezone: "America/New_York",
   timeFormat: "12h",
+  theme: "dark",
   snoozeTimes: {
     laterToday: "Today, 6 PM",
     tomorrow: "Tomorrow, 8 AM",
@@ -154,6 +156,15 @@ export default function Home() {
     const t = setTimeout(() => syncSettings(settings), 500);
     return () => clearTimeout(t);
   }, [settings, synced]);
+
+  // apply the theme and remember it for the pre-paint script in layout.tsx
+  useEffect(() => {
+    const theme = settings.theme ?? "dark";
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem("tria-theme", theme);
+    } catch {}
+  }, [settings.theme]);
   // emails of the accounts connected live this session; empty = demo data
   const [liveAccounts, setLiveAccounts] = useState<string[]>([]);
   const live = liveAccounts.length > 0;
@@ -181,6 +192,10 @@ export default function Home() {
   // reloads), otherwise reconnect saved logins that were live last time.
   useEffect(() => {
     (async () => {
+      // paint the last known mailbox immediately — the live fetch replaces it;
+      // if the network is down, this is what "offline" shows
+      const cached = loadMailCache();
+      if (cached) setEmails((prev) => (prev.length === 0 ? cached : prev));
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       let accs = await apiAccounts();
       const saved = await apiSavedAccounts().catch(() => null);
@@ -203,6 +218,13 @@ export default function Home() {
         .catch(() => {});
     })();
   }, []);
+
+  // keep the offline mail cache in step with whatever is on screen
+  useEffect(() => {
+    if (!live || emails.length === 0) return;
+    const t = setTimeout(() => saveMailCache(emails), 800);
+    return () => clearTimeout(t);
+  }, [emails, live]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -495,6 +517,7 @@ export default function Home() {
     setSelectedEmailId(null);
     if (remaining.length === 0) {
       setEmails([]);
+      clearMailCache();
       showToast("Disconnected — no accounts connected");
     } else {
       // drop the disconnected account's messages, keep the rest

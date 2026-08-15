@@ -817,6 +817,28 @@ export default function SettingsModal({
                   ))}
                 </select>
               </Field>
+              <Field label="Appearance">
+                <div className="flex gap-1.5">
+                  {(
+                    [
+                      ["light", "Light"],
+                      ["dark", "Dark"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => onChange({ theme: key })}
+                      className={`flex-1 rounded-lg border px-2 py-1.5 font-display text-[10px] font-medium uppercase tracking-[0.1em] transition-colors ${
+                        (settings.theme ?? "dark") === key
+                          ? "border-(--color-clay) bg-(--color-clay-soft) text-(--color-clay)"
+                          : "hairline text-(--color-ink-soft) hover:border-(--color-ink-faint)"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
               <Field label="Time format">
                 <div className="flex gap-1.5">
                   {(["12h", "24h"] as const).map((f) => (

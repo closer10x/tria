@@ -73,6 +73,8 @@ export type Settings = {
   password: string;
   timezone: string;
   timeFormat: "12h" | "24h";
+  /** Pane appearance; optional so settings saved before it existed still load. */
+  theme?: "light" | "dark";
   snoozeTimes: { laterToday: string; tomorrow: string; nextWeek: string };
 };
 
