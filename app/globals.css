@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
 @theme {
-  --font-display: "Jost", "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* --font-jost / --font-inter come from next/font in app/layout.tsx, which
+     self-hosts the files; the literal names stay as the fallback so the type
+     still resolves if a face fails to load. */
+  --font-display: var(--font-jost), "Jost", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
 
   --color-paper: #f2f4f7;
   --color-panel: #ffffff;

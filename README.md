@@ -40,9 +40,28 @@ view per account. Replies go out from the account the email arrived in;
 compose has a **From** picker. Disconnect accounts individually (or all at
 once) in Settings → Email Account.
 
+## Install it
+
+Tria is a PWA: **Share → Add to Home Screen** on iOS, or the install icon in a
+desktop browser's address bar. It then opens without browser chrome, which is
+what makes the three-pane layout workable on a phone.
+
+A service worker (`public/sw.js`) caches the app shell, so a cold start paints
+Tria instead of going to the network, and repeat opens skip revalidation
+entirely. What it deliberately does **not** cache: anything under `/api` —
+mail and AI replies are either sensitive or must be fresh, and the data worth
+keeping already has its own considered caches below. Fonts are self-hosted via
+`next/font`, so no render-blocking request to a third-party origin stands
+between a tap and the first paint.
+
+Navigations are network-first, so a new deploy is picked up on the next open
+rather than waiting for every tab to close.
+
 ## Offline
 
-The app keeps working when the network doesn't.
+The app keeps working when the network doesn't — including a **cold start**:
+opening it with no connection paints the real app from the cached shell, not
+the browser's offline page.
 
 - **Your mail, tasks and threads stay on screen.** The last mailbox snapshot
   (`lib/mailCache.ts`) and the last workspace state (`lib/appCache.ts`) live in
