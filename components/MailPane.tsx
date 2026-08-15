@@ -279,6 +279,7 @@ export default function MailPane({
   const [folder, setFolder] = useState<Folder>("inbox");
   // mobile-only chrome: burger drawer + a search field that opens on demand
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const mobileSearchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -1408,10 +1409,31 @@ export default function MailPane({
 
           <div className="mb-4 flex items-start gap-3">
             <Avatar initials={selected.from.initials} hue={selected.from.hue} />
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-semibold">{selected.from.name}</p>
-              <p className="text-xs text-(--color-ink-faint)">
-                {selected.from.email} · {selected.time}
+              <p className="flex items-center gap-1.5 text-xs text-(--color-ink-faint)">
+                {/* tap to copy — the address is the thing people actually want off this line */}
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(selected.from.email).then(
+                      () => {
+                        setCopiedEmail(true);
+                        setTimeout(() => setCopiedEmail(false), 1400);
+                      },
+                      () => {}
+                    );
+                  }}
+                  title="Copy email address"
+                  className="min-w-0 truncate select-all rounded px-0.5 text-left transition-colors hover:bg-(--color-paper) hover:text-(--color-ink)"
+                >
+                  {selected.from.email}
+                </button>
+                {copiedEmail && (
+                  <span className="shrink-0 font-display text-[9px] font-semibold uppercase tracking-[0.14em] text-(--color-sage)">
+                    Copied
+                  </span>
+                )}
+                <span className="shrink-0">· {selected.time}</span>
               </p>
               {multiAccount && selected.accountId && (
                 <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-(--color-ink-faint)">
@@ -1430,13 +1452,22 @@ export default function MailPane({
           <h3 className="font-display mb-4 text-2xl font-light leading-snug">
             {selected.subject}
           </h3>
-          <div className="space-y-3 text-[13.5px] leading-relaxed text-(--color-ink-soft)">
-            {selected.body.length > 0 ? (
-              selected.body.map((p, i) => <p key={i}>{p}</p>)
-            ) : (
-              <p className="text-(--color-ink-faint)">Loading message…</p>
-            )}
-          </div>
+          {selected.html ? (
+            <div
+              className="email-body text-[13.5px] leading-relaxed text-(--color-ink-soft)"
+              // sanitized server-side in lib/mail/render.ts (allowlist; no
+              // scripts/styles/handlers; remote images blocked)
+              dangerouslySetInnerHTML={{ __html: selected.html }}
+            />
+          ) : (
+            <div className="email-body space-y-3 text-[13.5px] leading-relaxed text-(--color-ink-soft)">
+              {selected.body.length > 0 ? (
+                selected.body.map((p, i) => <p key={i}>{p}</p>)
+              ) : (
+                <p className="text-(--color-ink-faint)">Loading message…</p>
+              )}
+            </div>
+          )}
 
           {selected.attachments && (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -1476,33 +1507,33 @@ export default function MailPane({
             </div>
           )}
 
-          <div className="mt-6 flex flex-wrap gap-2 border-t hairline pt-4">
+          <div className="mt-6 grid grid-cols-3 gap-2 border-t hairline pt-4">
             {!selected.taskId ? (
               <button
                 onClick={() => onMakeTask(selected)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-(--color-clay) px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-(--color-clay) px-2 py-2.5 text-[12px] font-semibold text-white shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98]"
               >
-                <SparkIcon /> Make Smart Task
+                <SparkIcon /> Smart Task
               </button>
             ) : (
               <button
                 onClick={() => onViewTask(selected.taskId!)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-(--color-clay-soft) px-3.5 py-2 text-[13px] font-semibold text-(--color-clay) transition-transform hover:scale-[1.02]"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-(--color-clay-soft) px-2 py-2.5 text-[12px] font-semibold text-(--color-clay) transition-transform hover:scale-[1.02]"
               >
-                <SparkIcon /> View Smart Task →
+                <SparkIcon /> View Task
               </button>
             )}
             <button
               onClick={() => onSendToAi(selected)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-(--color-ink) px-3.5 py-2 text-[13px] font-semibold text-(--color-paper) shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-(--color-ink) px-2 py-2.5 text-[12px] font-semibold text-(--color-paper) shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98]"
             >
               <SparkIcon /> Take to AI
             </button>
             <button
               onClick={() => onShareToThread(selected)}
-              className="rounded-lg border hairline bg-white px-3.5 py-2 text-[13px] font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-ink-faint)"
+              className="inline-flex items-center justify-center rounded-lg border hairline bg-white px-2 py-2.5 text-[12px] font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-ink-faint)"
             >
-              Share to thread ↗
+              Share ↗
             </button>
           </div>
 
@@ -1525,7 +1556,12 @@ export default function MailPane({
                 onChange={(e) => setReplyText(e.target.value)}
                 placeholder={`Write to ${selected.from.name.split(" ")[0]}…`}
                 rows={4}
-                autoFocus
+                // desktop only: on a phone auto-focus yanks the keyboard up
+                // and covers the message you're replying to
+                autoFocus={
+                  typeof window !== "undefined" &&
+                  window.matchMedia("(min-width: 1024px)").matches
+                }
                 className="nice-scroll w-full resize-none bg-transparent text-[13px] leading-relaxed outline-none placeholder:text-(--color-ink-faint)"
               />
               <div className="mt-2 flex items-center justify-between">

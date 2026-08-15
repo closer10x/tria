@@ -43,7 +43,7 @@ export function saveMailCache(emails: Email[], accounts: string[]) {
   try {
     const slim = emails
       .slice(0, MAX_EMAILS)
-      .map((e, i) => (i < MAX_BODIES ? e : { ...e, body: [] }));
+      .map((e, i) => (i < MAX_BODIES ? e : { ...e, body: [], html: undefined }));
     localStorage.setItem(
       KEY,
       JSON.stringify({ emails: slim, accounts, at: Date.now() })

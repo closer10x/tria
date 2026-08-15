@@ -4,6 +4,7 @@ import { COOKIE } from "@/lib/mail/store";
 import { resolveAccount } from "@/lib/mail/resolve";
 import { isRole, resolveRole, Role, withImap } from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
+import { sanitizeEmailHtml, textToEmailHtml } from "@/lib/mail/render";
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
@@ -28,15 +29,25 @@ export async function GET(req: NextRequest) {
         const dl = await client.download(String(uid), undefined, { uid: true });
         const parsed = await simpleParser(dl.content);
         const text = (parsed.text ?? "").trim();
+        // plain paragraphs stay the machine-readable form (search, AI, drafts)
         const body = text
           .split(/\n{2,}/)
           .map((p) => p.replace(/\n/g, " ").trim())
           .filter(Boolean)
           .slice(0, 40);
+        // the reader shows the real email: sanitized HTML part when there is
+        // one, otherwise the text part with its link wrappers made clickable
+        const html =
+          typeof parsed.html === "string" && parsed.html.trim()
+            ? sanitizeEmailHtml(parsed.html)
+            : text
+              ? textToEmailHtml(text)
+              : "";
         // opening a message marks it read
         await client.messageFlagsAdd(String(uid), ["\\Seen"], { uid: true });
         return {
           body: body.length ? body : ["(no text content)"],
+          html: html || undefined,
           messageId: parsed.messageId,
           references: parsed.references,
         };

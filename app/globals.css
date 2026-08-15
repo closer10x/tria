@@ -260,3 +260,27 @@ html[data-theme="dark"] .glass {
 .glass-btn:active {
   background: rgba(127, 127, 127, 0.22);
 }
+
+/* Rendered email bodies: contain whatever the sender's HTML tries to do to
+   the layout — no horizontal scroll from wide tables/long URLs, sane images. */
+.email-body {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow-x: hidden;
+}
+.email-body p { margin: 0 0 0.75em; }
+.email-body p:last-child { margin-bottom: 0; }
+.email-body a { color: var(--color-clay); text-decoration: underline; text-underline-offset: 2px; }
+.email-body img { max-width: 100%; height: auto; }
+.email-body table { max-width: 100%; border-collapse: collapse; }
+.email-body td, .email-body th { word-break: break-word; }
+.email-body blockquote {
+  margin: 0.5em 0;
+  padding-left: 0.75em;
+  border-left: 2px solid var(--color-line);
+  color: var(--color-ink-faint);
+}
+.email-body pre { white-space: pre-wrap; }
+.email-body h1, .email-body h2, .email-body h3 { font-size: 1.05em; font-weight: 600; margin: 0.6em 0 0.3em; }
+.email-body ul, .email-body ol { padding-left: 1.25em; margin: 0.5em 0; }
+.email-body font { color: inherit; }

@@ -414,6 +414,7 @@ export default function Home() {
                 ? {
                     ...e,
                     body: r.body,
+                    html: r.html,
                     // keep the threading headers — a reply that omits them
                     // starts a new conversation in the recipient's client
                     messageId: r.messageId,

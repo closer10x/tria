@@ -159,7 +159,7 @@ export async function apiBody(
   role: Folder,
   uid: number,
   account?: string
-): Promise<{ body: string[]; messageId?: string; references?: string[] }> {
+): Promise<{ body: string[]; html?: string; messageId?: string; references?: string[] }> {
   const res = await netFetch(
     `/api/mail/message?role=${role}&uid=${uid}${
       account ? `&account=${encodeURIComponent(account)}` : ""
@@ -168,12 +168,13 @@ export async function apiBody(
   const data = (await res.json()) as {
     ok: boolean;
     body?: string[];
+    html?: string;
     messageId?: string;
     references?: string[];
     error?: string;
   };
   if (!data.ok || !data.body) throw new Error(data.error ?? "Fetch failed");
-  return { body: data.body, messageId: data.messageId, references: data.references };
+  return { body: data.body, html: data.html, messageId: data.messageId, references: data.references };
 }
 
 export async function apiAction(

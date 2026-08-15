@@ -47,6 +47,8 @@ export type Email = {
   tag?: string;
   taskId?: string; // linked smart task
   attachments?: FileRef[];
+  /** Sanitized HTML of the message for the reader; body[] stays the text form. */
+  html?: string;
   /** RFC message id, read with the body — a reply quotes it so clients thread. */
   messageId?: string;
   /** The thread this message is part of, carried into replies. */
