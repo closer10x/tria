@@ -432,6 +432,19 @@ export default function Home() {
     );
   };
 
+  /**
+   * Every route into a smart task — the Make Smart Task button and a drop on
+   * the task pane — comes through here, so Smart Attach asks about the
+   * attachments either way rather than only on drop.
+   */
+  const startTaskFromEmail = (email: Email) => {
+    if (email.attachments?.length) {
+      setAttachPrompt(email); // Smart Attach: ask about attachments
+    } else {
+      makeTask(email);
+    }
+  };
+
   const dropEmailToTasks = (emailId: string) => {
     const email = emails.find((e) => e.id === emailId);
     if (!email) return;
@@ -440,11 +453,7 @@ export default function Home() {
       showToast("This email already has a smart task");
       return;
     }
-    if (email.attachments?.length) {
-      setAttachPrompt(email); // Smart Attach: ask about attachments
-    } else {
-      makeTask(email);
-    }
+    startTaskFromEmail(email);
   };
 
   const reorderTasks = (dragId: string, targetId: string) => {
@@ -1117,7 +1126,7 @@ export default function Home() {
           selectedId={selectedEmailId}
           onSelect={openEmail}
           onBack={() => setSelectedEmailId(null)}
-          onMakeTask={makeTask}
+          onMakeTask={startTaskFromEmail}
           onShareToThread={shareEmailToThread}
           onViewTask={highlightTask}
           onSendToAi={sendEmailToAi}
