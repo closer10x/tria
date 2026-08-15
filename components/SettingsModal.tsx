@@ -99,6 +99,9 @@ function Field({
   );
 }
 
+/** Providers whose IMAP only accepts a 16-character app password. */
+const appPasswordProviders = new Set<Provider>(["gmail", "yahoo", "icloud"]);
+
 const inputCls =
   "w-full rounded-lg border hairline bg-white px-3 py-2 text-sm outline-none placeholder:text-(--color-ink-faint) focus:border-(--color-clay)/50";
 
@@ -381,6 +384,15 @@ export default function SettingsModal({
                   onChange={(e) => onChange({ password: e.target.value })}
                 />
               </Field>
+              {appPasswordProviders.has(settings.provider) &&
+                settings.password.length > 0 &&
+                settings.password.replace(/\s+/g, "").length !== 16 && (
+                  <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
+                    {providerPresets[settings.provider].label} app passwords are
+                    16 characters. This looks like your normal account password —
+                    {providerPresets[settings.provider].label} will reject it.
+                  </p>
+                )}
               {selectedSaved?.hasPassword && !settings.password && (
                 <p className="text-[11px] leading-relaxed text-(--color-sage)">
                   This account has a saved login — hit Connect and the stored

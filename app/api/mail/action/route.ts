@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, getAccount } from "@/lib/mail/store";
 import { resolveRole, Role, withImap } from "@/lib/mail/imap";
+import { mailErrorMessage } from "@/lib/mail/errors";
 
 type Action =
   | "read"
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "Action failed" },
+      { ok: false, error: mailErrorMessage(e) },
       { status: 500 }
     );
   }

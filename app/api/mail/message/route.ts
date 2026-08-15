@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { simpleParser } from "mailparser";
 import { COOKIE, getAccount } from "@/lib/mail/store";
 import { resolveRole, Role, withImap } from "@/lib/mail/imap";
+import { mailErrorMessage } from "@/lib/mail/errors";
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "Fetch failed" },
+      { ok: false, error: mailErrorMessage(e) },
       { status: 500 }
     );
   }

@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { COOKIE, getAccount } from "@/lib/mail/store";
 import { resolveRole, withImap } from "@/lib/mail/imap";
+import { mailErrorMessage } from "@/lib/mail/errors";
 
 export async function POST(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "Send failed" },
+      { ok: false, error: mailErrorMessage(e) },
       { status: 500 }
     );
   }

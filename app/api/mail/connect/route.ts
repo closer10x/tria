@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, MailConfig, sessions } from "@/lib/mail/store";
 import { withImap } from "@/lib/mail/imap";
+import { mailErrorMessage } from "@/lib/mail/errors";
 import { credAad, cryptoReady, decrypt, encrypt } from "@/lib/server/crypto";
 import { loadCreds, saveCreds } from "@/lib/server/creds";
 import { Provider } from "@/lib/types";
@@ -65,21 +66,43 @@ export async function POST(req: NextRequest) {
   try {
     await withImap(cfg, async () => true);
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "IMAP connection failed" },
-      { status: 401 }
-    );
+    // App passwords are shown as "abcd efgh ijkl mnop" and get pasted with the
+    // spaces, which the server rejects. Retry once without them before failing.
+    const authFailed = (e as { authenticationFailed?: boolean }).authenticationFailed;
+    const stripped = cfg.pass.replace(/\s+/g, "");
+    if (authFailed && stripped !== cfg.pass && stripped.length > 0) {
+      try {
+        const retry = { ...cfg, pass: stripped };
+        await withImap(retry, async () => true);
+        cfg = retry;
+      } catch (e2) {
+        return NextResponse.json(
+          { ok: false, error: mailErrorMessage(e2, body.provider ?? stored?.provider) },
+          { status: 401 }
+        );
+      }
+    } else {
+      return NextResponse.json(
+        { ok: false, error: mailErrorMessage(e, body.provider ?? stored?.provider) },
+        { status: 401 }
+      );
+    }
   }
   // Success — persist the login (encrypted) so it survives restarts.
   if (cryptoReady) {
     const id = cfg.user;
     const existing = creds.accounts.find((a) => a.id === id);
+    // when the connection came from a saved account, its own provider wins
+    // over whatever preset the form happened to be showing
+    const usedStored = !body.pass;
     creds.accounts = [
       ...creds.accounts.filter((a) => a.id !== id),
       {
         id,
         email: id,
-        provider: body.provider ?? existing?.provider ?? "custom",
+        provider: usedStored
+          ? existing?.provider ?? body.provider ?? "custom"
+          : body.provider ?? existing?.provider ?? "custom",
         imapHost: cfg.imapHost,
         imapPort: cfg.imapPort,
         smtpHost: cfg.smtpHost,

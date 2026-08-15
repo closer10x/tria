@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, getAccount, getAccounts } from "@/lib/mail/store";
 import { listMessages, Role, WireEmail } from "@/lib/mail/imap";
+import { mailErrorMessage } from "@/lib/mail/errors";
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, messages });
   } catch (e) {
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "Fetch failed" },
+      { ok: false, error: mailErrorMessage(e) },
       { status: 500 }
     );
   }
