@@ -15,6 +15,12 @@ export type StoredAccount = {
   id: string; // the account email address
   email: string;
   provider: Provider;
+  /** "oauth" accounts authenticate with a token instead of a password. */
+  authType?: "password" | "oauth";
+  oauthProvider?: "microsoft" | "google";
+  refreshTokenEnc?: string;
+  accessTokenEnc?: string;
+  accessTokenExpiresAt?: number;
   imapHost: string;
   imapPort: number;
   smtpHost: string;
@@ -91,6 +97,16 @@ export async function saveCreds(creds: CredData): Promise<void> {
 
 /** Public shape sent to the client — never includes ciphertext. */
 export function toPublic(a: StoredAccount) {
-  const { passwordEnc, ...rest } = a;
-  return { ...rest, hasPassword: Boolean(passwordEnc) };
+  const {
+    passwordEnc,
+    refreshTokenEnc,
+    accessTokenEnc,
+    accessTokenExpiresAt,
+    ...rest
+  } = a;
+  return {
+    ...rest,
+    hasPassword: Boolean(passwordEnc),
+    isOAuth: a.authType === "oauth" && Boolean(refreshTokenEnc),
+  };
 }

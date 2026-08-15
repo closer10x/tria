@@ -30,11 +30,21 @@ export async function POST(req: NextRequest) {
       inReplyTo,
       references,
     };
+    const auth = cfg.oauthAccountId
+      ? {
+          type: "OAuth2" as const,
+          user: cfg.user,
+          accessToken: await (
+            await import("@/lib/server/oauth")
+          ).getAccessToken(cfg.oauthAccountId),
+        }
+      : { user: cfg.user, pass: cfg.pass };
     const transport = nodemailer.createTransport({
       host: cfg.smtpHost,
       port: cfg.smtpPort,
       secure: cfg.smtpPort === 465,
-      auth: { user: cfg.user, pass: cfg.pass },
+      requireTLS: cfg.smtpPort !== 465,
+      auth,
     });
     await transport.sendMail(mail);
     // append a copy to Sent (Gmail does this automatically; harmless if duplicated)

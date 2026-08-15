@@ -67,6 +67,9 @@ export type SavedAccountInfo = {
   smtpHost: string;
   smtpPort: number;
   hasPassword: boolean;
+  /** Signed in with Microsoft/Google — no password involved. */
+  isOAuth?: boolean;
+  oauthProvider?: "microsoft" | "google";
 };
 
 export type SavedAccountsResult = {

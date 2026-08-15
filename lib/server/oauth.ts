@@ -1,0 +1,234 @@
+import { Provider } from "@/lib/types";
+import { credAad, cryptoReady, decrypt, encrypt } from "@/lib/server/crypto";
+import { loadCreds, saveCreds, StoredAccount } from "@/lib/server/creds";
+
+/**
+ * OAuth sign-in for mail accounts (XOAUTH2).
+ * Microsoft 365 tenants and Google both block plain-password IMAP/SMTP, so the
+ * durable path is an access token. Refresh tokens are stored with the same
+ * AES-256-GCM envelope as passwords — they never reach the client.
+ */
+
+export type OAuthProvider = "microsoft" | "google";
+
+type ProviderConfig = {
+  label: string;
+  authUrl: string;
+  tokenUrl: string;
+  scopes: string;
+  extraAuthParams: Record<string, string>;
+  clientId?: string;
+  clientSecret?: string;
+  /** Mail settings applied to accounts created through this provider. */
+  mail: {
+    provider: Provider;
+    imapHost: string;
+    imapPort: number;
+    smtpHost: string;
+    smtpPort: number;
+  };
+};
+
+export const providers: Record<OAuthProvider, ProviderConfig> = {
+  microsoft: {
+    label: "Microsoft",
+    authUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    scopes: [
+      "offline_access",
+      "openid",
+      "email",
+      "https://outlook.office.com/IMAP.AccessAsUser.All",
+      "https://outlook.office.com/SMTP.Send",
+    ].join(" "),
+    extraAuthParams: { response_mode: "query" },
+    clientId: process.env.MICROSOFT_OAUTH_CLIENT_ID,
+    clientSecret: process.env.MICROSOFT_OAUTH_CLIENT_SECRET,
+    mail: {
+      provider: "m365",
+      imapHost: "outlook.office365.com",
+      imapPort: 993,
+      smtpHost: "smtp.office365.com",
+      smtpPort: 587,
+    },
+  },
+  google: {
+    label: "Google",
+    authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    scopes: ["openid", "email", "https://mail.google.com/"].join(" "),
+    // Google only returns a refresh token with these two
+    extraAuthParams: { access_type: "offline", prompt: "consent" },
+    clientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    mail: {
+      provider: "gmail",
+      imapHost: "imap.gmail.com",
+      imapPort: 993,
+      smtpHost: "smtp.gmail.com",
+      smtpPort: 465,
+    },
+  },
+};
+
+export const isOAuthProvider = (v: string): v is OAuthProvider =>
+  v === "microsoft" || v === "google";
+
+export const oauthConfigured = (p: OAuthProvider) =>
+  Boolean(providers[p].clientId && providers[p].clientSecret);
+
+export const redirectUri = (origin: string, p: OAuthProvider) =>
+  `${origin}/api/oauth/${p}/callback`;
+
+export const STATE_COOKIE = "tria_oauth_state";
+
+export function buildAuthUrl(
+  p: OAuthProvider,
+  origin: string,
+  state: string
+): string {
+  const cfg = providers[p];
+  const params = new URLSearchParams({
+    client_id: cfg.clientId!,
+    response_type: "code",
+    redirect_uri: redirectUri(origin, p),
+    scope: cfg.scopes,
+    state,
+    ...cfg.extraAuthParams,
+  });
+  return `${cfg.authUrl}?${params}`;
+}
+
+type TokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  id_token?: string;
+  error?: string;
+  error_description?: string;
+};
+
+async function postToken(
+  p: OAuthProvider,
+  body: Record<string, string>
+): Promise<TokenResponse> {
+  const cfg = providers[p];
+  const res = await fetch(cfg.tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: cfg.clientId!,
+      client_secret: cfg.clientSecret!,
+      ...body,
+    }),
+  });
+  return (await res.json()) as TokenResponse;
+}
+
+/** The address the user signed in as, read from the id_token claims. */
+function emailFromIdToken(idToken: string | undefined): string | null {
+  if (!idToken) return null;
+  try {
+    const payload = JSON.parse(
+      Buffer.from(idToken.split(".")[1], "base64url").toString("utf8")
+    ) as { email?: string; preferred_username?: string; upn?: string };
+    return payload.email ?? payload.preferred_username ?? payload.upn ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const tokenAad = (email: string, p: OAuthProvider) => `${email}|oauth|${p}`;
+
+/** Exchange the callback code and persist the account. Returns its email. */
+export async function completeSignIn(
+  p: OAuthProvider,
+  code: string,
+  origin: string
+): Promise<{ email: string } | { error: string }> {
+  if (!cryptoReady) return { error: "TRIA_ENC_KEY is not set on the server." };
+  const tok = await postToken(p, {
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri(origin, p),
+  });
+  if (tok.error || !tok.access_token)
+    return { error: tok.error_description ?? tok.error ?? "Token exchange failed" };
+  if (!tok.refresh_token)
+    return {
+      error:
+        "No refresh token was returned — revoke the app's access and sign in again so it prompts for consent.",
+    };
+
+  const email = emailFromIdToken(tok.id_token);
+  if (!email) return { error: "Could not read the account address from the sign-in." };
+
+  const mail = providers[p].mail;
+  const creds = await loadCreds();
+  const existing = creds.accounts.find((a) => a.id === email);
+  const account: StoredAccount = {
+    ...existing,
+    id: email,
+    email,
+    provider: mail.provider,
+    imapHost: mail.imapHost,
+    imapPort: mail.imapPort,
+    smtpHost: mail.smtpHost,
+    smtpPort: mail.smtpPort,
+    // a token-backed account never uses the old password
+    passwordEnc: undefined,
+    authType: "oauth",
+    oauthProvider: p,
+    refreshTokenEnc: encrypt(tok.refresh_token, tokenAad(email, p)),
+    accessTokenEnc: encrypt(tok.access_token, tokenAad(email, p)),
+    accessTokenExpiresAt: Date.now() + (tok.expires_in ?? 3600) * 1000,
+  };
+  creds.accounts = [...creds.accounts.filter((a) => a.id !== email), account];
+  if (!creds.connectedAccountIds.includes(email))
+    creds.connectedAccountIds = [...creds.connectedAccountIds, email];
+  await saveCreds(creds);
+  return { email };
+}
+
+/** A usable access token for an OAuth account, refreshing when it has aged out. */
+export async function getAccessToken(accountId: string): Promise<string> {
+  const creds = await loadCreds();
+  const account = creds.accounts.find((a) => a.id === accountId);
+  if (!account || account.authType !== "oauth" || !account.oauthProvider)
+    throw new Error(`No OAuth account for ${accountId}`);
+  const p = account.oauthProvider;
+  const aad = tokenAad(account.email, p);
+
+  const fresh =
+    account.accessTokenEnc &&
+    account.accessTokenExpiresAt &&
+    account.accessTokenExpiresAt - Date.now() > 60_000;
+  if (fresh) return decrypt(account.accessTokenEnc!, aad);
+
+  if (!account.refreshTokenEnc)
+    throw new Error(`${accountId} needs to sign in again.`);
+  const tok = await postToken(p, {
+    grant_type: "refresh_token",
+    refresh_token: decrypt(account.refreshTokenEnc, aad),
+  });
+  if (tok.error || !tok.access_token)
+    throw new Error(
+      tok.error_description ?? `${accountId} needs to sign in again.`
+    );
+
+  const updated: StoredAccount = {
+    ...account,
+    accessTokenEnc: encrypt(tok.access_token, aad),
+    accessTokenExpiresAt: Date.now() + (tok.expires_in ?? 3600) * 1000,
+    // providers may hand back a rotated refresh token
+    refreshTokenEnc: tok.refresh_token
+      ? encrypt(tok.refresh_token, aad)
+      : account.refreshTokenEnc,
+  };
+  creds.accounts = creds.accounts.map((a) => (a.id === accountId ? updated : a));
+  await saveCreds(creds);
+  return tok.access_token;
+}
+
+/** Re-export so callers building password configs keep one import site. */
+export { credAad };

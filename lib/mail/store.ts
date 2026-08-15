@@ -1,10 +1,16 @@
 export type MailConfig = {
   user: string;
+  /** Empty for OAuth accounts — see oauthAccountId. */
   pass: string;
   imapHost: string;
   imapPort: number;
   smtpHost: string;
   smtpPort: number;
+  /**
+   * Set for token-backed accounts. Access tokens expire, so the session holds
+   * only the account id and a fresh token is resolved per connection.
+   */
+  oauthAccountId?: string;
 };
 
 // One session token (cookie) → many connected accounts, keyed by email address.

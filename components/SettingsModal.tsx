@@ -313,10 +313,16 @@ export default function SettingsModal({
                           <span className="min-w-0 flex-1 truncate font-medium">
                             {a.email}
                           </span>
-                          {a.hasPassword && (
-                            <span className="shrink-0 rounded-full bg-(--color-sage)/15 px-1.5 py-0.5 font-display text-[8px] font-semibold uppercase tracking-[0.12em] text-(--color-sage)">
-                              Saved login
+                          {a.isOAuth ? (
+                            <span className="shrink-0 rounded-full bg-(--color-clay-soft) px-1.5 py-0.5 font-display text-[8px] font-semibold uppercase tracking-[0.12em] text-(--color-clay)">
+                              Signed in
                             </span>
+                          ) : (
+                            a.hasPassword && (
+                              <span className="shrink-0 rounded-full bg-(--color-sage)/15 px-1.5 py-0.5 font-display text-[8px] font-semibold uppercase tracking-[0.12em] text-(--color-sage)">
+                                Saved login
+                              </span>
+                            )
                           )}
                           <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.14em] text-(--color-ink-faint)">
                             {providerPresets[a.provider].label}
@@ -354,7 +360,30 @@ export default function SettingsModal({
                 </Field>
               )}
 
-              <Field label="Provider — presets fill in automatically">
+              <Field label="Sign in — no password needed">
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(
+                    [
+                      ["microsoft", "Microsoft"],
+                      ["google", "Google"],
+                    ] as const
+                  ).map(([p, label]) => (
+                    <a
+                      key={p}
+                      href={`/api/oauth/${p}/start`}
+                      className="flex items-center justify-center gap-2 rounded-lg border hairline px-3 py-2 text-xs font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
+                    >
+                      Sign in with {label}
+                    </a>
+                  ))}
+                </div>
+              </Field>
+              <p className="text-[11px] leading-relaxed text-(--color-ink-faint)">
+                Microsoft 365 and Google increasingly block password logins
+                outright — signing in is the reliable route.
+              </p>
+
+              <Field label="Or connect with a password">
                 <div className="grid grid-cols-3 gap-1.5">
                   {(Object.keys(providerPresets) as Provider[]).map((p) => (
                     <button

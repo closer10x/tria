@@ -17,7 +17,18 @@ export async function POST(req: NextRequest) {
     : undefined;
 
   let cfg: MailConfig | null = null;
-  if (body.user && body.pass && body.imapHost) {
+  if (stored?.authType === "oauth" && stored.refreshTokenEnc && !body.pass) {
+    // token-backed account: no password involved, the token is refreshed on use
+    cfg = {
+      user: stored.email,
+      pass: "",
+      imapHost: stored.imapHost,
+      imapPort: stored.imapPort,
+      smtpHost: stored.smtpHost,
+      smtpPort: stored.smtpPort,
+      oauthAccountId: stored.id,
+    };
+  } else if (body.user && body.pass && body.imapHost) {
     cfg = {
       user: body.user,
       pass: body.pass,
@@ -93,31 +104,35 @@ export async function POST(req: NextRequest) {
       return failed(e);
     }
   }
-  // Success — persist the login (encrypted) so it survives restarts.
+  // Success — persist the login (encrypted) so it survives restarts. OAuth
+  // accounts own their tokens already; only mark them connected.
   if (cryptoReady) {
     const id = cfg.user;
     const existing = creds.accounts.find((a) => a.id === id);
-    // when the connection came from a saved account, its own provider wins
-    // over whatever preset the form happened to be showing
-    const usedStored = !body.pass;
-    creds.accounts = [
-      ...creds.accounts.filter((a) => a.id !== id),
-      {
-        id,
-        email: id,
-        provider: usedStored
-          ? existing?.provider ?? body.provider ?? "custom"
-          : body.provider ?? existing?.provider ?? "custom",
-        imapHost: cfg.imapHost,
-        imapPort: cfg.imapPort,
-        smtpHost: cfg.smtpHost,
-        smtpPort: cfg.smtpPort,
-        passwordEnc: encrypt(
-          cfg.pass,
-          credAad(id, cfg.imapHost, cfg.smtpHost)
-        ),
-      },
-    ];
+    if (!cfg.oauthAccountId) {
+      // when the connection came from a saved account, its own provider wins
+      // over whatever preset the form happened to be showing
+      const usedStored = !body.pass;
+      creds.accounts = [
+        ...creds.accounts.filter((a) => a.id !== id),
+        {
+          id,
+          email: id,
+          provider: usedStored
+            ? existing?.provider ?? body.provider ?? "custom"
+            : body.provider ?? existing?.provider ?? "custom",
+          authType: "password",
+          imapHost: cfg.imapHost,
+          imapPort: cfg.imapPort,
+          smtpHost: cfg.smtpHost,
+          smtpPort: cfg.smtpPort,
+          passwordEnc: encrypt(
+            cfg.pass,
+            credAad(id, cfg.imapHost, cfg.smtpHost)
+          ),
+        },
+      ];
+    }
     if (!creds.connectedAccountIds.includes(id)) {
       creds.connectedAccountIds = [...creds.connectedAccountIds, id];
     }

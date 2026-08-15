@@ -223,6 +223,17 @@ export default function Home() {
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }, []);
 
+  // report the result of an OAuth round trip, then clean the URL
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const connected = q.get("oauth_connected");
+    const error = q.get("oauth_error");
+    if (!connected && !error) return;
+    showToast(connected ? `⚡ Signed in as ${connected}` : error!);
+    if (error) setSettingsOpen(true);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [showToast]);
+
   const openEmail = (id: string) => {
     setSelectedEmailId(id);
     const email = emails.find((e) => e.id === id);

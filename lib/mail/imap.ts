@@ -12,12 +12,21 @@ const HUES = [
   "bg-indigo-100 text-indigo-700",
 ];
 
-export function makeClient(cfg: MailConfig) {
+export async function makeClient(cfg: MailConfig) {
+  // token-backed accounts get a freshly refreshed access token per connection
+  const auth = cfg.oauthAccountId
+    ? {
+        user: cfg.user,
+        accessToken: await (
+          await import("@/lib/server/oauth")
+        ).getAccessToken(cfg.oauthAccountId),
+      }
+    : { user: cfg.user, pass: cfg.pass };
   return new ImapFlow({
     host: cfg.imapHost,
     port: cfg.imapPort,
     secure: true,
-    auth: { user: cfg.user, pass: cfg.pass },
+    auth,
     logger: false,
   });
 }
@@ -26,7 +35,7 @@ export async function withImap<T>(
   cfg: MailConfig,
   fn: (client: ImapFlow) => Promise<T>
 ): Promise<T> {
-  const client = makeClient(cfg);
+  const client = await makeClient(cfg);
   await client.connect();
   try {
     return await fn(client);
