@@ -41,6 +41,11 @@ export const providers: Record<OAuthProvider, ProviderConfig> = {
       "email",
       "https://outlook.office.com/IMAP.AccessAsUser.All",
       "https://outlook.office.com/SMTP.Send",
+      // Graph is a second resource, which Microsoft accepts here for consent
+      // even though each token request returns only one resource. Sending
+      // needs it whenever the tenant has SMTP AUTH switched off — see
+      // lib/mail/graph.ts.
+      "https://graph.microsoft.com/Mail.Send",
     ].join(" "),
     extraAuthParams: { response_mode: "query" },
     clientId: process.env.MICROSOFT_OAUTH_CLIENT_ID,
@@ -278,6 +283,57 @@ export async function getAccessToken(accountId: string): Promise<string> {
   };
   creds.accounts = creds.accounts.map((a) => (a.id === accountId ? updated : a));
   await saveCreds(creds);
+  return tok.access_token;
+}
+
+/** What Graph needs to send as the signed-in user. */
+export const GRAPH_SEND_SCOPE =
+  "offline_access https://graph.microsoft.com/Mail.Send";
+
+/**
+ * A Graph access token for the same account, redeemed from the stored refresh
+ * token. Microsoft access tokens are audience-scoped, so the outlook.office.com
+ * token used for IMAP cannot be replayed against graph.microsoft.com — but a
+ * single refresh token can be exchanged for either, as long as the app
+ * registration carries the scope and the user has consented to it.
+ *
+ * This is the way out of a tenant with SMTP AUTH disabled: that switch blocks
+ * the SMTP protocol, not the mailbox, and Graph sendMail is unaffected by it.
+ */
+export async function getGraphAccessToken(accountId: string): Promise<string> {
+  const creds = await loadCreds();
+  const account = creds.accounts.find((a) => a.id === accountId);
+  if (
+    !account ||
+    account.authType !== "oauth" ||
+    account.oauthProvider !== "microsoft"
+  )
+    throw new Error(`${accountId} is not a Microsoft account.`);
+  if (!account.refreshTokenEnc)
+    throw new Error(`${accountId} needs to sign in again.`);
+
+  const aad = tokenAad(account.email, "microsoft");
+  const tok = await postToken("microsoft", {
+    grant_type: "refresh_token",
+    refresh_token: decrypt(account.refreshTokenEnc, aad),
+    scope: GRAPH_SEND_SCOPE,
+  });
+  if (tok.error || !tok.access_token)
+    throw Object.assign(
+      new Error(tok.error_description ?? "Graph rejected the token request."),
+      { oauthError: tok.error }
+    );
+
+  // Microsoft may rotate the refresh token on any redemption; dropping the new
+  // one would strand the account at the next refresh.
+  if (tok.refresh_token) {
+    creds.accounts = creds.accounts.map((a) =>
+      a.id === accountId
+        ? { ...a, refreshTokenEnc: encrypt(tok.refresh_token!, aad) }
+        : a
+    );
+    await saveCreds(creds);
+  }
   return tok.access_token;
 }
 

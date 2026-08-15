@@ -5,6 +5,7 @@ import { COOKIE } from "@/lib/mail/store";
 import { resolveAccount } from "@/lib/mail/resolve";
 import { resolveRole, withImap } from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
+import { GraphConsentError, sendViaGraph } from "@/lib/mail/graph";
 
 export async function POST(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
@@ -39,6 +40,26 @@ export async function POST(req: NextRequest) {
         encoding: "base64" as const,
       })),
     };
+    const raw = await new MailComposer(mail).compile().build();
+
+    // Microsoft OAuth accounts go through Graph first: a tenant with SMTP AUTH
+    // disabled rejects every SMTP login regardless of credential, and Graph is
+    // unaffected. SMTP stays as the fallback for tenants that still allow it.
+    if (cfg.oauthAccountId && /office365\.com$/i.test(cfg.smtpHost)) {
+      try {
+        await sendViaGraph(cfg.oauthAccountId, raw);
+        // Graph files its own copy in Sent Items — appending would duplicate it
+        return NextResponse.json({ ok: true, via: "graph" });
+      } catch (e) {
+        if (e instanceof GraphConsentError) throw e;
+        // anything else (a Graph outage, an oversized message): try SMTP
+        console.error("graph send failed, falling back to smtp", {
+          account: cfg.user,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
     const auth = cfg.oauthAccountId
       ? {
           type: "OAuth2" as const,
@@ -58,7 +79,6 @@ export async function POST(req: NextRequest) {
     await transport.sendMail(mail);
     // append a copy to Sent (Gmail does this automatically; harmless if duplicated)
     try {
-      const raw = await new MailComposer(mail).compile().build();
       await withImap(cfg, async (client) => {
         const sent = await resolveRole(client, "sent");
         await client.append(sent, raw, ["\\Seen"]);
@@ -66,7 +86,7 @@ export async function POST(req: NextRequest) {
     } catch {
       // non-fatal
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, via: "smtp" });
   } catch (e) {
     // log the raw failure so production sends are diagnosable from the logs
     console.error("send failed", {
@@ -76,7 +96,11 @@ export async function POST(req: NextRequest) {
       message: e instanceof Error ? e.message : String(e),
     });
     return NextResponse.json(
-      { ok: false, error: mailErrorMessage(e) },
+      {
+        ok: false,
+        // a consent failure already carries the instruction to fix it
+        error: e instanceof GraphConsentError ? e.message : mailErrorMessage(e),
+      },
       { status: 500 }
     );
   }
