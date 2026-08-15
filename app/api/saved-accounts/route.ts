@@ -40,6 +40,12 @@ export async function POST(req: NextRequest) {
   const hostsUnchanged =
     existing?.imapHost === imapHost && existing?.smtpHost === smtpHost;
   const account: StoredAccount = {
+    // Carry the existing record forward rather than rebuilding it: authType,
+    // oauthProvider and the token ciphertext live here too, and dropping them
+    // silently un-authenticates the account — renaming one used to wipe its
+    // OAuth login. Token ciphertext is bound to email|oauth|provider, not to
+    // the hosts, so it stays valid even when the hosts below change.
+    ...existing,
     id,
     email: id,
     provider: body.provider ?? existing?.provider ?? "custom",
