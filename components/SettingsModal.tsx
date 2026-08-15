@@ -366,6 +366,10 @@ export default function SettingsModal({
                                 : "bg-(--color-ink-faint)/40"
                             }`}
                           />
+                          <ProviderIcon
+                            provider={a.provider}
+                            className="h-4 w-4 shrink-0"
+                          />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate font-medium">
                               {a.email}
@@ -420,6 +424,10 @@ export default function SettingsModal({
                         className="flex w-full items-center gap-2 rounded-lg border hairline px-3 py-2.5 text-xs"
                       >
                         <span className="h-2 w-2 shrink-0 rounded-full bg-(--color-ink-faint)/40" />
+                        <ProviderIcon
+                          provider={a.provider}
+                          className="h-4 w-4 shrink-0"
+                        />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">
                             {a.email}

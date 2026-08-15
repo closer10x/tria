@@ -70,7 +70,8 @@ export async function DELETE(req: NextRequest) {
   const creds = await loadCreds();
   creds.accounts = creds.accounts.filter((a) => a.id !== id);
   creds.connectedAccountIds = creds.connectedAccountIds.filter((x) => x !== id);
-  await saveCreds(creds);
+  // deleting the last saved account legitimately empties the store
+  await saveCreds(creds, { allowEmpty: true });
   return NextResponse.json({
     ok: true,
     accounts: creds.accounts.map(toPublic),
