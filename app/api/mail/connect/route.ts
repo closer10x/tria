@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, MailConfig, sessions } from "@/lib/mail/store";
 import { withImap } from "@/lib/mail/imap";
-import { mailErrorMessage } from "@/lib/mail/errors";
+import { diagnoseBasicAuth, mailErrorMessage } from "@/lib/mail/errors";
 import { credAad, cryptoReady, decrypt, encrypt } from "@/lib/server/crypto";
 import { loadCreds, saveCreds } from "@/lib/server/creds";
 import { Provider } from "@/lib/types";
@@ -63,6 +63,17 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  const provider = body.provider ?? stored?.provider;
+  const failed = async (err: unknown) => {
+    const authFailed = (err as { authenticationFailed?: boolean }).authenticationFailed;
+    // an auth rejection may be tenant policy rather than a bad password
+    const precise = authFailed && cfg ? await diagnoseBasicAuth(cfg) : null;
+    return NextResponse.json(
+      { ok: false, error: precise ?? mailErrorMessage(err, provider) },
+      { status: 401 }
+    );
+  };
+
   try {
     await withImap(cfg, async () => true);
   } catch (e) {
@@ -76,16 +87,10 @@ export async function POST(req: NextRequest) {
         await withImap(retry, async () => true);
         cfg = retry;
       } catch (e2) {
-        return NextResponse.json(
-          { ok: false, error: mailErrorMessage(e2, body.provider ?? stored?.provider) },
-          { status: 401 }
-        );
+        return failed(e2);
       }
     } else {
-      return NextResponse.json(
-        { ok: false, error: mailErrorMessage(e, body.provider ?? stored?.provider) },
-        { status: 401 }
-      );
+      return failed(e);
     }
   }
   // Success — persist the login (encrypted) so it survives restarts.
