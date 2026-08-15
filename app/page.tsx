@@ -19,6 +19,7 @@ import {
   apiSavedAccountDelete,
   apiSavedAccountSave,
   apiAsk,
+  apiSmartTask,
   apiSavedAccounts,
   apiSaveDraft,
   apiSend,
@@ -73,45 +74,16 @@ const nextId = (prefix: string) =>
 const nowTime = () =>
   new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-/** Mocked "smart" extraction — later this becomes an LLM call. */
-function buildSmartTask(email: Email): Task {
-  const lower = (email.subject + " " + email.body.join(" ")).toLowerCase();
-  const urgent = /friday|today|eod|asap|urgent|tomorrow/.test(lower);
-  const checklist =
-    email.id === "e1"
-      ? [
-          { id: nextId("c"), label: "Approve hero variant (A or B)", done: false },
-          { id: nextId("c"), label: "Confirm pricing table copy", done: false },
-          { id: nextId("c"), label: "Send cleared customer logos", done: false },
-        ]
-      : email.id === "e2"
-        ? [
-            { id: nextId("c"), label: "Check cash-flow impact of net-45", done: false },
-            { id: nextId("c"), label: "Reply to Derek with decision", done: false },
-          ]
-        : email.id === "e5"
-          ? [
-              { id: nextId("c"), label: "Confirm availability for Oct 12", done: false },
-              { id: nextId("c"), label: "Send bio + headshot", done: false },
-            ]
-          : [{ id: nextId("c"), label: "Reply to " + email.from.name, done: false }];
-
+/** Placeholder shown while Claude reads the email; replaced when it answers. */
+function pendingTask(email: Email): Task {
   return {
     id: nextId("t"),
-    title:
-      email.id === "e1"
-        ? "Review Q3 launch assets for Maya"
-        : email.id === "e2"
-          ? "Decide on net-45 terms for Northpine"
-          : email.id === "e5"
-            ? "Respond to Founder Forum invite"
-            : `Follow up: ${email.subject}`,
+    title: email.subject || `Follow up with ${email.from.name}`,
     note: email.preview,
     sourceEmailId: email.id,
-    priority: urgent ? "high" : "medium",
-    due: urgent ? "Fri, Aug 15" : undefined,
+    priority: "medium",
     status: "todo",
-    checklist,
+    checklist: [],
     createdAt: "Just now",
     justCreated: true,
   };
@@ -260,8 +232,8 @@ export default function Home() {
     }
   };
 
-  const makeTask = (email: Email, includeAttachments = false) => {
-    const task = buildSmartTask(email);
+  const makeTask = async (email: Email, includeAttachments = false) => {
+    const task = pendingTask(email);
     if (includeAttachments && email.attachments)
       task.attachments = email.attachments;
     setTasks((prev) => [task, ...prev]);
@@ -270,16 +242,58 @@ export default function Home() {
     );
     showToast(
       includeAttachments
-        ? "✦ Smart task created — attachments included"
-        : "✦ Smart task created from email"
+        ? "✦ Reading the email — attachments included"
+        : "✦ Reading the email…"
     );
-    setTimeout(
-      () =>
-        setTasks((prev) =>
-          prev.map((t) => (t.id === task.id ? { ...t, justCreated: false } : t))
-        ),
-      2500
-    );
+
+    // pull the body if we only have the preview, so extraction sees everything
+    let body = email.body.join("\n");
+    if (live && email.uid && !body) {
+      body = await apiBody(email.folder, email.uid, email.accountId)
+        .then((r) => r.body.join("\n"))
+        .catch(() => email.preview);
+    }
+
+    try {
+      const draft = await apiSmartTask({
+        from: `${email.from.name} <${email.from.email}>`,
+        subject: email.subject,
+        body: body || email.preview,
+        now: new Date().toDateString(),
+      });
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id
+            ? {
+                ...t,
+                title: draft.title || t.title,
+                note: draft.note || t.note,
+                priority: draft.priority,
+                due: draft.due || undefined,
+                checklist: draft.checklist.map((c) => ({
+                  id: nextId("c"),
+                  label: c.label,
+                  done: false,
+                })),
+              }
+            : t
+        )
+      );
+      showToast(
+        `✦ ${draft.checklist.length} step${draft.checklist.length === 1 ? "" : "s"} found`
+      );
+    } catch (err) {
+      // keep the task; it just doesn't have extracted steps
+      showToast(String(err instanceof Error ? err.message : err));
+    } finally {
+      setTimeout(
+        () =>
+          setTasks((prev) =>
+            prev.map((t) => (t.id === task.id ? { ...t, justCreated: false } : t))
+          ),
+        2500
+      );
+    }
   };
 
   const dropEmailToTasks = (emailId: string) => {
@@ -484,6 +498,30 @@ export default function Home() {
           : t
       )
     );
+  };
+
+  const togglePinTask = (id: string) =>
+    setTasks((prev) => {
+      const next = prev.map((t) =>
+        t.id === id ? { ...t, pinned: !t.pinned } : t
+      );
+      // pinned first, otherwise keep the order the user arranged
+      return [...next].sort(
+        (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+      );
+    });
+
+  const deleteTask = (id: string) => {
+    const task = tasks.find((t) => t.id === id);
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+    // release the source email so it can be turned into a task again
+    if (task?.sourceEmailId)
+      setEmails((prev) =>
+        prev.map((e) =>
+          e.id === task.sourceEmailId ? { ...e, taskId: undefined } : e
+        )
+      );
+    showToast("Task deleted");
   };
 
   const toggleChecklist = (taskId: string, itemId: string) => {
@@ -949,6 +987,8 @@ export default function Home() {
           onAskAi={sendTaskToAi}
           onReorder={reorderTasks}
           onDropEmail={dropEmailToTasks}
+          onTogglePin={togglePinTask}
+          onDelete={deleteTask}
         />
         </div>
 

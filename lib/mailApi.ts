@@ -195,6 +195,39 @@ export async function apiAction(
   if (!data.ok) throw new Error(data.error ?? "Action failed");
 }
 
+/** Read an email and pull out the work it's actually asking for. */
+export async function apiSmartTask(payload: {
+  from: string;
+  subject: string;
+  body: string;
+  now?: string;
+}): Promise<{
+  title: string;
+  note: string;
+  priority: "high" | "medium" | "low";
+  due: string;
+  checklist: { label: string }[];
+}> {
+  const res = await fetch("/api/ai/task", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as {
+    ok: boolean;
+    task?: {
+      title: string;
+      note: string;
+      priority: "high" | "medium" | "low";
+      due: string;
+      checklist: { label: string }[];
+    };
+    error?: string;
+  };
+  if (!data.ok || !data.task) throw new Error(data.error ?? "Smart task failed");
+  return data.task;
+}
+
 /** Rename one saved account without touching its credentials. */
 export async function apiSavedAccountLabel(
   account: SavedAccountInfo,

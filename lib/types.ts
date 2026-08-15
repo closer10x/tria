@@ -92,6 +92,8 @@ export type Task = {
   checklist: ChecklistItem[];
   createdAt: string;
   justCreated?: boolean;
+  /** Pinned tasks sort above the rest. */
+  pinned?: boolean;
   attachments?: FileRef[];
 };
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Email, Task, TaskPriority, TaskStatus } from "@/lib/types";
-import { ChatIcon, ClipIcon, PaneHeader, SparkIcon } from "./ui";
+import { ChatIcon, ClipIcon, PaneHeader, PinIcon, SparkIcon, TrashIcon } from "./ui";
 
 const statusOrder: TaskStatus[] = ["doing", "todo", "done"];
 const statusLabel: Record<TaskStatus, string> = {
@@ -68,6 +68,8 @@ export default function TaskPane({
   onAskAi,
   onReorder,
   onDropEmail,
+  onTogglePin,
+  onDelete,
 }: {
   tasks: Task[];
   emails: Email[];
@@ -79,6 +81,8 @@ export default function TaskPane({
   onAskAi: (task: Task) => void;
   onReorder: (dragId: string, targetId: string) => void;
   onDropEmail: (emailId: string) => void;
+  onTogglePin: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   const open = tasks.filter((t) => t.status !== "done").length;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -184,7 +188,38 @@ export default function TaskPane({
                             >
                               {task.title}
                             </p>
-                            <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            <span
+                              className={`flex shrink-0 items-center gap-1 transition-opacity group-hover:opacity-100 ${
+                                task.pinned ? "opacity-100" : "opacity-0"
+                              }`}
+                            >
+                              <button
+                                title={task.pinned ? "Unpin" : "Pin to top"}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onTogglePin(task.id);
+                                }}
+                                className={`rounded-md p-1.5 transition-colors hover:bg-(--color-clay-soft) hover:text-(--color-clay) ${
+                                  task.pinned
+                                    ? "text-(--color-clay)"
+                                    : "text-(--color-ink-faint)"
+                                }`}
+                              >
+                                <PinIcon
+                                  className="h-3.5 w-3.5"
+                                  filled={task.pinned}
+                                />
+                              </button>
+                              <button
+                                title="Delete task"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDelete(task.id);
+                                }}
+                                className="rounded-md p-1.5 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
+                              >
+                                <TrashIcon className="h-3.5 w-3.5" />
+                              </button>
                               <button
                                 title="Ask AI"
                                 onClick={(e) => {

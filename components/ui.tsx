@@ -125,6 +125,30 @@ export function ClockIcon({ className = "" }: { className?: string }) {
   );
 }
 
+/** A pushpin. `filled` marks an already-pinned item. */
+export function PinIcon({
+  className = "",
+  filled = false,
+}: {
+  className?: string;
+  filled?: boolean;
+}) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`h-3.5 w-3.5 ${className}`}
+    >
+      <path d="M6 1.8h4l-.6 3.3 2.1 2.2H4.5l2.1-2.2z" />
+      <path d="M8 7.3V14" />
+    </svg>
+  );
+}
+
 export function TrashIcon({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"
