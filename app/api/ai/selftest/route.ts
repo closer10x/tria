@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveAllAccounts } from "@/lib/mail/resolve";
-import { listMessages } from "@/lib/mail/imap";
+import { listMessages, resolveRole, withImap } from "@/lib/mail/imap";
+import { simpleParser } from "mailparser";
 import { llmChat, llmProvider, resolveKeys } from "@/lib/server/llm";
 import { SMART_TASK_SCHEMA, SMART_TASK_SYSTEM } from "@/app/api/ai/task/prompt";
 
@@ -37,7 +38,21 @@ export async function GET() {
     if (!newest)
       return NextResponse.json({ ok: false, step: "mail", error: "inbox is empty" }, { status: 503 });
 
-    const body = (newest.body ?? []).join("\n");
+    // listMessages returns previews, not bodies — the app fetches the full
+    // message separately before making a task, and so must this, or the model
+    // is asked to read an email it has only seen the subject line of.
+    const body = await withImap(accounts[0], async (client) => {
+      const path = await resolveRole(client, "inbox");
+      if (!path) throw new Error("no inbox folder");
+      const lock = await client.getMailboxLock(path);
+      try {
+        const dl = await client.download(String(newest.uid), undefined, { uid: true });
+        const parsed = await simpleParser(dl.content);
+        return (parsed.text ?? "").trim();
+      } finally {
+        lock.release();
+      }
+    });
     const fetchedAt = Date.now();
 
     const text = await llmChat({
@@ -61,6 +76,7 @@ export async function GET() {
         from: newest.from.email,
         subject: newest.subject,
         bodyChars: body.length,
+        bodyPreview: body.slice(0, 120),
       },
       ms: { mail: fetchedAt - started, ai: Date.now() - fetchedAt },
       task: JSON.parse(text),
