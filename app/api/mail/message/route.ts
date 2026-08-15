@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { simpleParser } from "mailparser";
-import { COOKIE, getAccount } from "@/lib/mail/store";
+import { COOKIE } from "@/lib/mail/store";
+import { resolveAccount } from "@/lib/mail/resolve";
 import { resolveRole, Role, withImap } from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
-  const cfg = getAccount(token, req.nextUrl.searchParams.get("account"));
+  const cfg = await resolveAccount(token, req.nextUrl.searchParams.get("account"));
   if (!cfg)
     return NextResponse.json({ ok: false, error: "Not connected" }, { status: 401 });
   const role = (req.nextUrl.searchParams.get("role") ?? "inbox") as Role;

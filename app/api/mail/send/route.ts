@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
-import { COOKIE, getAccount } from "@/lib/mail/store";
+import { COOKIE } from "@/lib/mail/store";
+import { resolveAccount } from "@/lib/mail/resolve";
 import { resolveRole, withImap } from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
 
 export async function POST(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
-  const { to, subject, text, inReplyTo, references, account } =
+  const { to, subject, text, inReplyTo, references, account, attachments } =
     (await req.json()) as {
       to: string;
       subject: string;
@@ -15,8 +16,10 @@ export async function POST(req: NextRequest) {
       inReplyTo?: string;
       references?: string[];
       account?: string;
+      /** any file type, base64-encoded by the browser */
+      attachments?: { filename: string; contentType?: string; data: string }[];
     };
-  const cfg = getAccount(token, account);
+  const cfg = await resolveAccount(token, account);
   if (!cfg)
     return NextResponse.json({ ok: false, error: "Not connected" }, { status: 401 });
   if (!to || !text)
@@ -29,6 +32,12 @@ export async function POST(req: NextRequest) {
       text,
       inReplyTo,
       references,
+      attachments: attachments?.map((a) => ({
+        filename: a.filename,
+        contentType: a.contentType,
+        content: a.data,
+        encoding: "base64" as const,
+      })),
     };
     const auth = cfg.oauthAccountId
       ? {

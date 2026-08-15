@@ -1,7 +1,13 @@
 import { ImapFlow } from "imapflow";
 import { MailConfig } from "./store";
 
-export type Role = "inbox" | "snoozed" | "sent" | "archive" | "trash";
+export type Role =
+  | "inbox"
+  | "snoozed"
+  | "drafts"
+  | "sent"
+  | "archive"
+  | "trash";
 
 const HUES = [
   "bg-rose-100 text-rose-700",
@@ -52,6 +58,10 @@ export async function resolveRole(
   const list = await client.list();
   const bySpecial = (flag: string) =>
     list.find((m) => m.specialUse === flag)?.path;
+  if (role === "drafts")
+    return (
+      bySpecial("\\Drafts") ?? list.find((m) => /draft/i.test(m.path))?.path ?? "INBOX"
+    );
   if (role === "sent")
     return bySpecial("\\Sent") ?? list.find((m) => /sent/i.test(m.path))?.path ?? "INBOX";
   if (role === "trash")
@@ -105,7 +115,12 @@ export function formatTime(d: Date | undefined, tz?: string): string {
   return d.toLocaleDateString([], { ...opts, month: "short", day: "numeric" });
 }
 
-type AttachmentInfo = { name: string; size?: string };
+type AttachmentInfo = {
+  name: string;
+  size?: string;
+  part?: string;
+  contentType?: string;
+};
 
 function walkAttachments(node: unknown, out: AttachmentInfo[]) {
   if (!node || typeof node !== "object") return;
@@ -114,6 +129,8 @@ function walkAttachments(node: unknown, out: AttachmentInfo[]) {
     dispositionParameters?: { filename?: string };
     parameters?: { name?: string };
     size?: number;
+    part?: string;
+    type?: string;
     childNodes?: unknown[];
   };
   const filename = n.dispositionParameters?.filename ?? n.parameters?.name;
@@ -121,6 +138,9 @@ function walkAttachments(node: unknown, out: AttachmentInfo[]) {
     out.push({
       name: filename,
       size: n.size ? `${Math.max(1, Math.round(n.size / 1024))} KB` : undefined,
+      // the part id is what lets the client fetch this file back
+      part: n.part,
+      contentType: n.type,
     });
   }
   n.childNodes?.forEach((c) => walkAttachments(c, out));
@@ -147,7 +167,9 @@ export async function listMessages(
   cfg: MailConfig,
   role: Role,
   tz?: string,
-  limit = 30
+  limit = 30,
+  /** how many newer messages to skip — paging back through the mailbox */
+  offset = 0
 ): Promise<WireEmail[]> {
   return withImap(cfg, async (client) => {
     const path = await resolveRole(client, role);
@@ -156,9 +178,11 @@ export async function listMessages(
       const mailbox = client.mailbox;
       const exists = mailbox && typeof mailbox === "object" ? mailbox.exists : 0;
       if (!exists) return [];
-      const start = Math.max(1, exists - limit + 1);
+      const end = exists - offset;
+      if (end < 1) return [];
+      const start = Math.max(1, end - limit + 1);
       const out: WireEmail[] = [];
-      for await (const msg of client.fetch(`${start}:*`, {
+      for await (const msg of client.fetch(`${start}:${end}`, {
         envelope: true,
         flags: true,
         uid: true,

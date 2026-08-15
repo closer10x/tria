@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { COOKIE, getAccount } from "@/lib/mail/store";
+import { COOKIE } from "@/lib/mail/store";
+import { resolveAccount } from "@/lib/mail/resolve";
 import { resolveRole, Role, withImap } from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
 
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
     action: Action;
     account?: string;
   };
-  const cfg = getAccount(token, account);
+  const cfg = await resolveAccount(token, account);
   if (!cfg)
     return NextResponse.json({ ok: false, error: "Not connected" }, { status: 401 });
   if (!uid || !action)

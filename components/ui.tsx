@@ -203,6 +203,25 @@ export function ChatIcon({ className = "" }: { className?: string }) {
   );
 }
 
+/** Circular refresh arrows. */
+export function RefreshIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`h-3.5 w-3.5 ${className}`}
+    >
+      <path d="M13.6 7A5.6 5.6 0 0 0 3.9 3.9L2.4 5.4" />
+      <path d="M2.4 9a5.6 5.6 0 0 0 9.7 3.1l1.5-1.5" />
+      <path d="M2.4 2.6v2.8h2.8M13.6 13.4v-2.8h-2.8" />
+    </svg>
+  );
+}
+
 export function SparkIcon({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="currentColor" className={`h-3.5 w-3.5 ${className}`}>

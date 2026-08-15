@@ -57,6 +57,21 @@ export async function apiDisconnect(account?: string): Promise<string[]> {
   }
 }
 
+/** Ask Claude, sending a snapshot of what's on screen as context. */
+export async function apiAsk(payload: {
+  turns: { role: "user" | "assistant"; text: string }[];
+  context: unknown;
+}): Promise<string> {
+  const res = await fetch("/api/ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { ok: boolean; text?: string; error?: string };
+  if (!data.ok) throw new Error(data.error ?? "The AI request failed.");
+  return data.text ?? "";
+}
+
 /** An account persisted in Supabase — password stays server-side, encrypted. */
 export type SavedAccountInfo = {
   id: string;
@@ -175,6 +190,24 @@ export async function apiAction(
   });
   const data = (await res.json()) as { ok: boolean; error?: string };
   if (!data.ok) throw new Error(data.error ?? "Action failed");
+}
+
+/** Save a draft into the account's Drafts mailbox. Returns its new uid. */
+export async function apiSaveDraft(payload: {
+  to: string;
+  subject: string;
+  text: string;
+  account?: string;
+  replaceUid?: number;
+}): Promise<number | undefined> {
+  const res = await fetch("/api/mail/draft", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { ok: boolean; uid?: number; error?: string };
+  if (!data.ok) throw new Error(data.error ?? "Could not save draft");
+  return data.uid;
 }
 
 export async function apiSend(payload: {

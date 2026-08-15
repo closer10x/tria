@@ -5,9 +5,29 @@ export type Sender = {
   hue: string; // tailwind-ish bg class token
 };
 
-export type Folder = "inbox" | "snoozed" | "sent" | "archive" | "trash";
+export type Folder =
+  | "inbox"
+  | "snoozed"
+  | "drafts"
+  | "sent"
+  | "archive"
+  | "trash";
 
-export type FileRef = { name: string; size?: string };
+export type FileRef = {
+  name: string;
+  size?: string;
+  /** IMAP body part id + type, set for attachments on live mail so they can be opened */
+  part?: string;
+  contentType?: string;
+};
+
+/** A file picked in the composer, base64-encoded for the send API. */
+export type OutgoingAttachment = {
+  filename: string;
+  contentType?: string;
+  size: number;
+  data: string;
+};
 
 export type Email = {
   id: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Email, Folder } from "@/lib/types";
 import {
   ArchiveIcon,
@@ -10,6 +10,7 @@ import {
   MailIcon,
   PaneHeader,
   PenIcon,
+  RefreshIcon,
   ReplyIcon,
   SparkIcon,
   StarIcon,
@@ -20,10 +21,23 @@ import {
 const folders: { key: Folder; label: string }[] = [
   { key: "inbox", label: "Inbox" },
   { key: "snoozed", label: "Snoozed" },
+  { key: "drafts", label: "Drafts" },
   { key: "sent", label: "Sent" },
   { key: "archive", label: "Archive" },
   { key: "trash", label: "Trash" },
 ];
+
+/** A message handed back to the composer — from an undone send or a draft. */
+export type RestoreDraft =
+  | { kind: "reply"; text: string }
+  | {
+      kind: "compose";
+      to: string;
+      subject: string;
+      body: string;
+      fromAccount?: string;
+      draftUid?: number;
+    };
 
 // stable per-account accent colors for the switcher and message rows
 const ACCOUNT_COLORS = [
@@ -181,6 +195,11 @@ export default function MailPane({
   onToggleStar,
   onMarkUnread,
   onFolderChange,
+  onSaveDraft,
+  onRefresh,
+  refreshing,
+  restoreDraft,
+  onDraftRestored,
   snoozeOptions,
 }: {
   emails: Email[];
@@ -206,6 +225,17 @@ export default function MailPane({
   onToggleStar: (id: string) => void;
   onMarkUnread: (id: string) => void;
   onFolderChange: (folder: Folder) => void;
+  onSaveDraft: (
+    to: string,
+    subject: string,
+    body: string,
+    fromAccount?: string
+  ) => void;
+  onRefresh: (folder: Folder) => void;
+  refreshing: boolean;
+  /** Set when an undone send hands its text back to the composer. */
+  restoreDraft: RestoreDraft | null;
+  onDraftRestored: () => void;
   snoozeOptions: string[];
 }) {
   const [query, setQuery] = useState("");
@@ -221,6 +251,25 @@ export default function MailPane({
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [fromAccount, setFromAccount] = useState<string>("");
+  // uid of the Drafts copy being edited, so re-saving replaces it
+  const [draftUid, setDraftUid] = useState<number | undefined>();
+
+  // an undone send (or a reopened draft) puts its text back in the composer
+  useEffect(() => {
+    if (!restoreDraft) return;
+    if (restoreDraft.kind === "reply") {
+      setReplyOpen(true);
+      setReplyText(restoreDraft.text);
+    } else {
+      setComposing(true);
+      setTo(restoreDraft.to);
+      setSubject(restoreDraft.subject);
+      setBody(restoreDraft.body);
+      setDraftUid(restoreDraft.draftUid);
+      if (restoreDraft.fromAccount) setFromAccount(restoreDraft.fromAccount);
+    }
+    onDraftRestored();
+  }, [restoreDraft, onDraftRestored]);
 
   // if the viewed account got disconnected, fall back to the unified view
   const activeAccount =
@@ -278,16 +327,45 @@ export default function MailPane({
     setTo("");
     setSubject("");
     setBody("");
+    setDraftUid(undefined);
     setFolder("sent");
+  };
+
+  const currentAccount = () =>
+    accounts.length
+      ? fromAccount || (activeAccount !== "all" ? activeAccount : accounts[0])
+      : undefined;
+
+  const saveDraft = () => {
+    if (!to.trim() && !subject.trim() && !body.trim()) return;
+    onSaveDraft(to.trim(), subject.trim(), body.trim(), currentAccount());
+    setComposing(false);
+    setTo("");
+    setSubject("");
+    setBody("");
+    setDraftUid(undefined);
+    setFolder("drafts");
   };
 
   return (
     <section className="pane relative flex h-full min-h-0 flex-col rounded-xl">
-      <PaneHeader
-        icon={<MailIcon />}
-        title="Mail"
-        count={unread > 0 ? `${unread} unread` : "all clear"}
-      />
+      <PaneHeader>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 text-(--color-clay)">
+          <MailIcon />
+        </span>
+        <h2 className="font-display text-[16px] font-light uppercase tracking-[0.32em] text-white">
+          Mail
+        </h2>
+        <button
+          onClick={() => onRefresh(folder)}
+          disabled={refreshing}
+          title="Refresh"
+          aria-label="Refresh mail"
+          className="ml-auto rounded-full border border-white/15 bg-white/5 p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-60"
+        >
+          <RefreshIcon className={refreshing ? "spin-slow" : ""} />
+        </button>
+      </PaneHeader>
 
       {composing ? (
         /* ---------- COMPOSE ---------- */
@@ -359,6 +437,12 @@ export default function MailPane({
               className="rounded-lg bg-(--color-clay) px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98]"
             >
               Send ↗
+            </button>
+            <button
+              onClick={saveDraft}
+              className="rounded-lg border hairline px-3.5 py-2 text-[13px] font-semibold text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
+            >
+              Save draft
             </button>
           </div>
         </div>
@@ -486,7 +570,19 @@ export default function MailPane({
             {filtered.map((email) => (
               <div
                 key={email.id}
-                onClick={() => onSelect(email.id)}
+                onClick={() => {
+                  // a draft reopens in the composer rather than a read view
+                  if (email.folder === "drafts") {
+                    setComposing(true);
+                    setTo(email.to ?? "");
+                    setSubject(email.subject === "(no subject)" ? "" : email.subject);
+                    setBody(email.body.join("\n"));
+                    setDraftUid(email.uid);
+                    if (email.accountId) setFromAccount(email.accountId);
+                    return;
+                  }
+                  onSelect(email.id);
+                }}
                 draggable
                 onDragStart={(e) => {
                   e.dataTransfer.setData("text/tria-email", email.id);

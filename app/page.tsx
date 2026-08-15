@@ -5,6 +5,8 @@ import AiPane from "@/components/AiPane";
 import ChatPane from "@/components/ChatPane";
 import MailPane from "@/components/MailPane";
 import SettingsModal from "@/components/SettingsModal";
+import UndoSendBar from "@/components/UndoSendBar";
+import type { RestoreDraft } from "@/components/MailPane";
 import TaskPane from "@/components/TaskPane";
 import { ChatIcon, ClipIcon, GearIcon, MailIcon, PaneHeader, SparkIcon } from "@/components/ui";
 import {
@@ -16,7 +18,9 @@ import {
   apiMessages,
   apiSavedAccountDelete,
   apiSavedAccountSave,
+  apiAsk,
   apiSavedAccounts,
+  apiSaveDraft,
   apiSend,
   SavedAccountInfo,
 } from "@/lib/mailApi";
@@ -58,6 +62,9 @@ const defaultSettings: Settings = {
     nextWeek: "Mon, 8 AM",
   },
 };
+
+/** Grace period before a sent message actually leaves. */
+const SEND_DELAY_MS = 5000;
 
 // ids must stay unique across page reloads now that state persists in Supabase
 const nextId = (prefix: string) =>
@@ -181,6 +188,16 @@ export default function Home() {
   const [attachPrompt, setAttachPrompt] = useState<Email | null>(null);
   // accounts persisted in Supabase (passwords encrypted server-side)
   const [savedAccounts, setSavedAccounts] = useState<SavedAccountInfo[]>([]);
+  // a message held in the undo window, plus the text to hand back if undone
+  const [pendingSend, setPendingSend] = useState<{
+    label: string;
+    draft: RestoreDraft;
+  } | null>(null);
+  const pendingSendRef = useRef<{ run: () => void; timer: ReturnType<typeof setTimeout> } | null>(
+    null
+  );
+  const [restoreDraft, setRestoreDraft] = useState<RestoreDraft | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Restore live mail on load: first from the in-memory session (cookie survives
   // reloads), otherwise reconnect saved logins that were live last time.
@@ -538,7 +555,89 @@ export default function Home() {
     hue: "bg-(--color-clay-soft) text-(--color-clay)",
   });
 
+  const saveDraft = async (
+    to: string,
+    subject: string,
+    body: string,
+    fromAccount?: string
+  ) => {
+    const account = fromAccount ?? liveAccounts[0];
+    const draft: Email = {
+      id: nextId("e"),
+      accountId: live ? account : undefined,
+      from: meAsSender(account ?? settings.email),
+      to,
+      subject: subject || "(no subject)",
+      preview: body.slice(0, 90),
+      body: body.split("\n").filter(Boolean),
+      time: nowTime(),
+      read: true,
+      folder: "drafts",
+    };
+    setEmails((prev) => [draft, ...prev]);
+    showToast("Draft saved");
+    if (live) {
+      try {
+        const uid = await apiSaveDraft({ to, subject, text: body, account });
+        if (uid) patchEmail(draft.id, { uid });
+      } catch (err) {
+        showToast(String(err instanceof Error ? err.message : err));
+      }
+    }
+  };
+
+  const refreshFolder = async (folder: Folder) => {
+    if (!live) return;
+    setRefreshing(true);
+    try {
+      const msgs = await apiMessages(folder, settings.timezone);
+      setEmails((prev) => [...prev.filter((e) => e.folder !== folder), ...msgs]);
+    } catch (err) {
+      showToast(String(err instanceof Error ? err.message : err));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  /** Hold an outgoing message briefly so it can be pulled back. */
+  const holdSend = (label: string, draft: RestoreDraft, run: () => void) => {
+    // a second send while one is held flushes the first immediately
+    flushPendingSend();
+    const timer = setTimeout(() => {
+      run();
+      pendingSendRef.current = null;
+      setPendingSend(null);
+    }, SEND_DELAY_MS);
+    pendingSendRef.current = { run, timer };
+    setPendingSend({ label, draft });
+  };
+
+  const flushPendingSend = () => {
+    const p = pendingSendRef.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pendingSendRef.current = null;
+    setPendingSend(null);
+    p.run();
+  };
+
+  const undoSend = () => {
+    const p = pendingSendRef.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pendingSendRef.current = null;
+    setRestoreDraft(pendingSend?.draft ?? null);
+    setPendingSend(null);
+    showToast("Send undone — your message is back");
+  };
+
   const sendReply = (email: Email, text: string) => {
+    holdSend(`Replying to ${email.from.name}`, { kind: "reply", text }, () =>
+      dispatchReply(email, text)
+    );
+  };
+
+  const dispatchReply = (email: Email, text: string) => {
     const withSig = settings.signature
       ? `${text}\n\n${settings.signature}`
       : text;
@@ -570,6 +669,19 @@ export default function Home() {
   };
 
   const sendNewEmail = (
+    to: string,
+    subject: string,
+    body: string,
+    fromAccount?: string
+  ) => {
+    holdSend(
+      `Sending to ${to}`,
+      { kind: "compose", to, subject, body, fromAccount },
+      () => dispatchNewEmail(to, subject, body, fromAccount)
+    );
+  };
+
+  const dispatchNewEmail = (
     to: string,
     subject: string,
     body: string,
@@ -616,55 +728,6 @@ export default function Home() {
     showToast("✦ Task attached — send it to the thread");
   };
 
-  /** Mock AI brain — answers from live app state. Later this becomes a real Claude call. */
-  const aiBrain = (text: string, attachment: Attachment | null): string => {
-    if (attachment?.type === "email") {
-      const e = emails.find((x) => x.id === attachment.refId);
-      if (e) {
-        const linked = e.taskId
-          ? "You already have a smart task for this one."
-          : "There's no task on this yet — say the word and I'll build one with a checklist.";
-        return `Here's the gist of ${e.from.name}'s email:\n${e.preview}\n${linked}\nI can also draft your reply, or drop a summary into one of your threads.`;
-      }
-    }
-    if (attachment?.type === "task") {
-      const t = tasks.find((x) => x.id === attachment.refId);
-      if (t) {
-        const nextStep = t.checklist.find((c) => !c.done)?.label;
-        const src = t.sourceEmailId
-          ? emails.find((e) => e.id === t.sourceEmailId)
-          : undefined;
-        return `Looking at "${t.title}" — ${
-          t.checklist.filter((c) => c.done).length
-        }/${t.checklist.length} steps done${t.due ? `, due ${t.due}` : ""}.\n${
-          nextStep ? `Next best move: "${nextStep}".` : "All steps are done — you can close this out."
-        }${src ? `\nWant me to draft the message to ${src.from.name}?` : ""}`;
-      }
-    }
-    const q = text.toLowerCase();
-    if (/due|week|today|plate|deadline/.test(q)) {
-      const open = tasks.filter((t) => t.status !== "done" && t.due);
-      if (open.length === 0) return "Nothing with a hard deadline right now. You're clear.";
-      return (
-        "Here's what has a deadline:\n" +
-        open.map((t) => `✦ ${t.title} — due ${t.due}`).join("\n") +
-        "\nWant me to prioritize them for you?"
-      );
-    }
-    if (/unread|inbox|mail|summar/.test(q)) {
-      const unread = emails.filter((e) => !e.read);
-      if (unread.length === 0) return "Inbox is clear — nothing unread.";
-      return (
-        `${unread.length} unread:\n` +
-        unread.map((e) => `✉ ${e.from.name} — ${e.subject}`).join("\n") +
-        "\nSend me either one and I'll break it down."
-      );
-    }
-    if (/draft|reply|respond|write/.test(q)) {
-      return `Here's a draft for Maya:\n"Maya — reviewed everything. Going with variant B, pricing copy is approved, and logos are on the way by Thursday. Great work."\nWant me to tighten it, or move it to your Launch crew thread?`;
-    }
-    return "Got it. Hand me any email or task with the + button, or ask about your inbox, deadlines, or drafts — everything in Tria is in my context.";
-  };
 
   const sendAiMessage = (text: string, override?: Attachment) => {
     const attachment = override ?? pendingAttachment;
@@ -677,20 +740,79 @@ export default function Home() {
     };
     setAiMessages((prev) => [...prev, msg]);
     setPendingAttachment(null);
-    setTimeout(() => setAiThinking(true), 400);
-    setTimeout(() => {
-      setAiThinking(false);
-      setAiMessages((prev) => [
-        ...prev,
-        {
-          id: nextId("am"),
-          role: "ai",
-          text: aiBrain(text, attachment),
-          time: nowTime(),
-        },
-      ]);
-      setAiUnread(true);
-    }, 1900);
+    setAiThinking(true);
+
+    // what the user is looking at, so Claude answers about this inbox
+    const focus =
+      attachment?.type === "email"
+        ? emails.find((e) => e.id === attachment.refId)
+        : undefined;
+    const focusTask =
+      attachment?.type === "task"
+        ? tasks.find((t) => t.id === attachment.refId)
+        : undefined;
+    const prompt = focus
+      ? `${text}\n\n(About this email — from ${focus.from.name}, subject "${focus.subject}")`
+      : focusTask
+        ? `${text}\n\n(About this task — "${focusTask.title}")`
+        : text;
+
+    const turns = [
+      ...aiMessages.map((m) => ({
+        role: m.role === "ai" ? ("assistant" as const) : ("user" as const),
+        text: m.text,
+      })),
+      { role: "user" as const, text: prompt },
+    ];
+
+    apiAsk({
+      turns,
+      context: {
+        now: new Date().toString(),
+        accounts: liveAccounts,
+        emails: emails.slice(0, 60).map((e) => ({
+          from: `${e.from.name} <${e.from.email}>`,
+          subject: e.subject,
+          preview: e.preview,
+          folder: e.folder,
+          read: e.read,
+          time: e.time,
+        })),
+        tasks: tasks.map((t) => ({
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          due: t.due,
+          checklist: t.checklist.map((c) => ({ label: c.label, done: c.done })),
+        })),
+        threads: threads.map((t) => ({
+          name: t.name,
+          members: t.members,
+          lastMessage: t.messages[t.messages.length - 1]?.text,
+        })),
+      },
+    })
+      .then((answer) =>
+        setAiMessages((prev) => [
+          ...prev,
+          { id: nextId("am"), role: "ai", text: answer, time: nowTime() },
+        ])
+      )
+      .catch((err) =>
+        setAiMessages((prev) => [
+          ...prev,
+          {
+            id: nextId("am"),
+            role: "ai",
+            text: String(err instanceof Error ? err.message : err),
+            time: nowTime(),
+          },
+        ])
+      )
+      .finally(() => {
+        setAiThinking(false);
+        setAiUnread(true);
+      });
   };
 
   const openAiTab = () => {
@@ -796,6 +918,11 @@ export default function Home() {
           onToggleStar={toggleStar}
           onMarkUnread={markUnread}
           onFolderChange={loadFolder}
+          onSaveDraft={saveDraft}
+          onRefresh={refreshFolder}
+          refreshing={refreshing}
+          restoreDraft={restoreDraft}
+          onDraftRestored={() => setRestoreDraft(null)}
           snoozeOptions={[
             settings.snoozeTimes.laterToday,
             settings.snoozeTimes.tomorrow,
@@ -918,6 +1045,16 @@ export default function Home() {
           </button>
         ))}
       </nav>
+
+      {/* Undo send */}
+      {pendingSend && (
+        <UndoSendBar
+          label={pendingSend.label}
+          seconds={SEND_DELAY_MS / 1000}
+          onUndo={undoSend}
+          onSendNow={flushPendingSend}
+        />
+      )}
 
       {/* Toast */}
       {toast && (

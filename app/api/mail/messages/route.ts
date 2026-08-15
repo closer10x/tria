@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { COOKIE, getAccount, getAccounts } from "@/lib/mail/store";
+import { COOKIE } from "@/lib/mail/store";
+import { resolveAccount, resolveAllAccounts } from "@/lib/mail/resolve";
 import { listMessages, Role, WireEmail } from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
 
@@ -11,17 +12,17 @@ export async function GET(req: NextRequest) {
   try {
     let messages: WireEmail[];
     if (account && account !== "all") {
-      const cfg = getAccount(token, account);
+      const cfg = await resolveAccount(token, account);
       if (!cfg)
         return NextResponse.json({ ok: false, error: "Not connected" }, { status: 401 });
       messages = await listMessages(cfg, role, tz);
     } else {
       // unified view — fetch every connected account in parallel and merge
-      const accounts = getAccounts(token);
-      if (!accounts || accounts.size === 0)
+      const accounts = await resolveAllAccounts(token);
+      if (accounts.length === 0)
         return NextResponse.json({ ok: false, error: "Not connected" }, { status: 401 });
       const lists = await Promise.all(
-        Array.from(accounts.values()).map((cfg) => listMessages(cfg, role, tz))
+        accounts.map((cfg) => listMessages(cfg, role, tz))
       );
       messages = lists
         .flat()

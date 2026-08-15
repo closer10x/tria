@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, getAccounts, sessions } from "@/lib/mail/store";
+import { resolveAccountIds } from "@/lib/mail/resolve";
 import { loadCreds, saveCreds } from "@/lib/server/creds";
 
-/** List the session's connected accounts. */
+/** List connected accounts — from this instance's session or the credential store. */
 export async function GET(req: NextRequest) {
-  const accounts = getAccounts(req.cookies.get(COOKIE)?.value);
-  return NextResponse.json({ ok: true, accounts: Array.from(accounts?.keys() ?? []) });
+  const accounts = await resolveAccountIds(req.cookies.get(COOKIE)?.value);
+  return NextResponse.json({ ok: true, accounts });
 }
 
 /** Disconnect one account (?account=…) or all of them. */
