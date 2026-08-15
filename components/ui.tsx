@@ -1,5 +1,3 @@
-import { TaskPriority } from "@/lib/types";
-
 export function Avatar({
   initials,
   hue,
@@ -23,24 +21,6 @@ export function Tag({ label }: { label: string }) {
   return (
     <span className="font-display text-[9px] font-normal uppercase tracking-[0.18em] text-(--color-ink-faint)">
       {label}
-    </span>
-  );
-}
-
-const prioStyles: Record<TaskPriority, { dot: string; text: string; label: string }> = {
-  high: { dot: "bg-(--color-clay)", text: "text-(--color-clay)", label: "High" },
-  medium: { dot: "bg-(--color-gold)", text: "text-(--color-gold)", label: "Medium" },
-  low: { dot: "bg-(--color-ink-faint)", text: "text-(--color-ink-faint)", label: "Low" },
-};
-
-export function PriorityPill({ p }: { p: TaskPriority }) {
-  const s = prioStyles[p];
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium ${s.text} border hairline`}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-      {s.label}
     </span>
   );
 }
