@@ -18,6 +18,12 @@ import {
   TrashIcon,
 } from "./ui";
 
+/** Good enough to tell a typo from an address; the server does the real check. */
+const splitAddresses = (v: string) =>
+  v.split(/[,;]+/).map((p) => p.trim()).filter(Boolean);
+
+const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
 /** Most providers reject much beyond this once base64-encoded. */
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
@@ -267,7 +273,10 @@ export default function MailPane({
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [composing, setComposing] = useState(false);
+  // recipients are committed to pills; `to` is whatever is still being typed
+  const [recipients, setRecipients] = useState<string[]>([]);
   const [to, setTo] = useState("");
+  const toInput = useRef<HTMLInputElement>(null);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [fromAccount, setFromAccount] = useState<string>("");
@@ -331,7 +340,8 @@ export default function MailPane({
       setReplyText(restoreDraft.text);
     } else {
       setComposing(true);
-      setTo(restoreDraft.to);
+      setRecipients(splitAddresses(restoreDraft.to));
+      setTo("");
       setSubject(restoreDraft.subject);
       setBody(restoreDraft.body);
       setDraftUid(restoreDraft.draftUid);
@@ -382,10 +392,32 @@ export default function MailPane({
     closeDetailState();
   };
 
+  /** Turn typed text into pills, splitting on commas, semicolons and spaces. */
+  const commitRecipients = (raw: string) => {
+    const parts = raw
+      .split(/[,;\s]+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+    setRecipients((prev) => [
+      ...prev,
+      ...parts.filter((p) => !prev.includes(p)),
+    ]);
+  };
+
+  /** Pills plus anything still in the box, so an unconfirmed address still sends. */
+  const allRecipients = () => {
+    const pending = to.trim();
+    return pending && !recipients.includes(pending)
+      ? [...recipients, pending]
+      : recipients;
+  };
+
   const submitCompose = () => {
-    if (!to.trim() || (!subject.trim() && !body.trim())) return;
+    const list = allRecipients();
+    if (list.length === 0 || (!subject.trim() && !body.trim())) return;
     onComposeSend(
-      to.trim(),
+      list.join(", "),
       subject.trim(),
       body.trim(),
       accounts.length
@@ -408,8 +440,9 @@ export default function MailPane({
       : undefined;
 
   const saveDraft = () => {
-    if (!to.trim() && !subject.trim() && !body.trim()) return;
-    onSaveDraft(to.trim(), subject.trim(), body.trim(), currentAccount());
+    const list = allRecipients();
+    if (list.length === 0 && !subject.trim() && !body.trim()) return;
+    onSaveDraft(list.join(", "), subject.trim(), body.trim(), currentAccount());
     setComposing(false);
     setAttached([]);
     setTo("");
@@ -458,7 +491,7 @@ export default function MailPane({
               <span className="font-display text-[9px] font-medium uppercase tracking-[0.18em] text-(--color-ink-faint)">
                 From
               </span>
-              <div className="nice-scroll flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
+              <div className="no-scrollbar flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
                 {accounts.map((a) => {
                   const current =
                     (fromAccount ||
@@ -485,12 +518,65 @@ export default function MailPane({
               </div>
             </div>
           )}
-          <input
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder="To"
-            className="mb-2 w-full border-b hairline bg-transparent px-1 py-2 text-sm outline-none placeholder:text-(--color-ink-faint) focus:border-(--color-clay)/50"
-          />
+          <div
+            onClick={() => toInput.current?.focus()}
+            className="mb-2 flex w-full flex-wrap items-center gap-1.5 border-b hairline px-1 py-1.5 focus-within:border-(--color-clay)/50"
+          >
+            {recipients.map((r, i) => (
+              <span
+                key={`${r}-${i}`}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
+                  isEmail(r)
+                    ? "hairline bg-(--color-paper) text-(--color-ink-soft)"
+                    : "border-red-300 bg-red-50 text-red-600"
+                }`}
+                title={isEmail(r) ? r : `${r} — doesn't look like an address`}
+              >
+                {r}
+                <button
+                  aria-label={`Remove ${r}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRecipients((prev) => prev.filter((_, j) => j !== i));
+                  }}
+                  className="rounded-full px-0.5 text-(--color-ink-faint) transition-colors hover:text-red-500"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            <input
+              ref={toInput}
+              value={to}
+              onChange={(e) => {
+                // pasting a list commits everything but the last fragment
+                if (/[,;]/.test(e.target.value)) {
+                  const parts = e.target.value.split(/[,;]+/);
+                  commitRecipients(parts.slice(0, -1).join(","));
+                  setTo(parts[parts.length - 1].trimStart());
+                } else setTo(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Tab") {
+                  if (to.trim()) {
+                    e.preventDefault();
+                    commitRecipients(to);
+                    setTo("");
+                  }
+                } else if (e.key === "Backspace" && !to) {
+                  setRecipients((prev) => prev.slice(0, -1));
+                }
+              }}
+              onBlur={() => {
+                if (to.trim()) {
+                  commitRecipients(to);
+                  setTo("");
+                }
+              }}
+              placeholder={recipients.length ? "" : "To"}
+              className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-sm outline-none placeholder:text-(--color-ink-faint)"
+            />
+          </div>
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
@@ -563,7 +649,7 @@ export default function MailPane({
         /* ---------- LIST ---------- */
         <>
           {multiAccount && (
-            <div className="nice-scroll flex items-center gap-1.5 overflow-x-auto px-5 pt-3">
+            <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto px-5 pt-3">
               <button
                 onClick={() => setAccount("all")}
                 className={`shrink-0 rounded-full border px-2.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.14em] transition-colors ${
@@ -605,7 +691,7 @@ export default function MailPane({
               ))}
             </div>
           )}
-          <div className="flex justify-between gap-2 overflow-x-auto px-5 pt-3">
+          <div className="no-scrollbar flex justify-between gap-2 overflow-x-auto px-5 pt-3">
             {folders.map((f) => (
               <button
                 key={f.key}
@@ -696,7 +782,8 @@ export default function MailPane({
                   // a draft reopens in the composer rather than a read view
                   if (email.folder === "drafts") {
                     setComposing(true);
-                    setTo(email.to ?? "");
+                    setRecipients(splitAddresses(email.to ?? ""));
+                    setTo("");
                     setSubject(email.subject === "(no subject)" ? "" : email.subject);
                     setBody(email.body.join("\n"));
                     setDraftUid(email.uid);
