@@ -5,6 +5,7 @@ import { Email, Task, TaskPriority, TaskStatus } from "@/lib/types";
 import type { ParsedTaskDraft } from "@/app/api/ai/parse-tasks/route";
 import BrainDump from "./BrainDump";
 import { ChatIcon, ClipIcon, PaneHeader, PinIcon, SparkIcon, TrashIcon } from "./ui";
+import { useArmedConfirm } from "./useArmedConfirm";
 
 const statusOrder: TaskStatus[] = ["doing", "todo", "done"];
 const statusLabel: Record<TaskStatus, string> = {
@@ -137,6 +138,11 @@ export default function TaskPane({
   const open = tasks.filter((t) => t.status !== "done").length;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [emailOver, setEmailOver] = useState(false);
+  // Deleting a task is permanent and there is no Trash to fish it back out
+  // of, so the button arms a confirm first — same two-step the thread rows
+  // and saved accounts use. Mail is the exception: delete there moves the
+  // message to Trash, which is already undoable.
+  const confirmDelete = useArmedConfirm();
 
   const toggleExpand = (id: string) =>
     setExpanded((prev) => {
@@ -264,16 +270,30 @@ export default function TaskPane({
                                   filled={task.pinned}
                                 />
                               </button>
-                              <button
-                                title="Delete task"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onDelete(task.id);
-                                }}
-                                className="rounded-md p-1.5 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
-                              >
-                                <TrashIcon className="h-3.5 w-3.5" />
-                              </button>
+                              {confirmDelete.isArmed(task.id) ? (
+                                <button
+                                  title="Delete this task permanently"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    confirmDelete.disarm();
+                                    onDelete(task.id);
+                                  }}
+                                  className="rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-600"
+                                >
+                                  Delete?
+                                </button>
+                              ) : (
+                                <button
+                                  title="Delete task"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    confirmDelete.arm(task.id);
+                                  }}
+                                  className="rounded-md p-1.5 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
+                                >
+                                  <TrashIcon className="h-3.5 w-3.5" />
+                                </button>
+                              )}
                               <button
                                 title="Ask AI"
                                 onClick={(e) => {

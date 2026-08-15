@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { llmChat, llmProvider, LlmRefusal, NO_PROVIDER_MSG } from "@/lib/server/llm";
+import {
+  briefLlmError,
+  llmChat,
+  llmProvider,
+  LlmRefusal,
+  NO_PROVIDER_MSG,
+} from "@/lib/server/llm";
 
 /**
  * The AI pane, backed by Claude (direct or via OpenRouter — see lib/server/llm).
@@ -84,11 +90,13 @@ function buildSystem(ctx: Context): string {
 }
 
 export async function POST(req: NextRequest) {
-  if (!llmProvider())
+  if (!llmProvider()) {
+    console.error(NO_PROVIDER_MSG);
     return NextResponse.json(
-      { ok: false, error: NO_PROVIDER_MSG },
+      { ok: false, error: briefLlmError({ status: 503 }) },
       { status: 503 }
     );
+  }
 
   const { turns, context } = (await req.json()) as {
     turns: Turn[];
@@ -108,20 +116,12 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     if (e instanceof LlmRefusal)
       return NextResponse.json({ ok: true, text: "I can't help with that one." });
-    const err = e as { status?: number; message?: string };
-    if (err.status === 401)
-      return NextResponse.json(
-        { ok: false, error: err.message ?? "The AI provider rejected the API key." },
-        { status: 401 }
-      );
-    if (err.status === 429)
-      return NextResponse.json(
-        { ok: false, error: "Rate limited — try again in a moment." },
-        { status: 429 }
-      );
+    // full diagnosis to the log, one line to the screen
+    console.error("ai chat failed", e);
+    const status = (e as { status?: number }).status;
     return NextResponse.json(
-      { ok: false, error: err.message ?? "The AI request failed." },
-      { status: err.status === 503 ? 503 : 500 }
+      { ok: false, error: briefLlmError(e) },
+      { status: status === 401 || status === 429 || status === 503 ? status : 500 }
     );
   }
 }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Attachment, Email, Task, Thread } from "@/lib/types";
 import AttachmentCard from "./AttachmentCard";
 import { ArchiveIcon, ChatIcon, ClipIcon, TrashIcon } from "./ui";
+import { useArmedConfirm } from "./useArmedConfirm";
 
 export function filePickerHandler(
   onSetPending: (a: Attachment) => void,
@@ -78,7 +79,7 @@ export default function ChatPane({
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [newThreadName, setNewThreadName] = useState("");
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const confirmDelete = useArmedConfirm();
   const scrollRef = useRef<HTMLDivElement>(null);
   const active = threads.find((t) => t.id === activeThreadId) ?? null;
   const liveThreads = threads.filter((t) => !t.archived);
@@ -175,7 +176,7 @@ export default function ChatPane({
                 key={thread.id}
                 onClick={() => onOpenThread(thread.id)}
                 onMouseLeave={() =>
-                  confirmDeleteId === thread.id && setConfirmDeleteId(null)
+                  confirmDelete.isArmed(thread.id) && confirmDelete.disarm()
                 }
                 className="group relative w-full cursor-pointer py-3.5 text-left transition-colors hover:bg-(--color-paper)/60"
               >
@@ -213,12 +214,12 @@ export default function ChatPane({
                   >
                     <ArchiveIcon className="h-3.5 w-3.5" />
                   </button>
-                  {confirmDeleteId === thread.id ? (
+                  {confirmDelete.isArmed(thread.id) ? (
                     <button
                       title="Click again to permanently delete"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setConfirmDeleteId(null);
+                        confirmDelete.disarm();
                         onDeleteThread(thread.id);
                       }}
                       className="rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-600"
@@ -230,7 +231,7 @@ export default function ChatPane({
                       title="Delete thread"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setConfirmDeleteId(thread.id);
+                        confirmDelete.arm(thread.id);
                       }}
                       className="rounded-md p-1.5 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
                     >
@@ -270,12 +271,12 @@ export default function ChatPane({
                     <button
                       title="Delete permanently"
                       onClick={() =>
-                        confirmDeleteId === thread.id
-                          ? (setConfirmDeleteId(null), onDeleteThread(thread.id))
-                          : setConfirmDeleteId(thread.id)
+                        confirmDelete.isArmed(thread.id)
+                          ? (confirmDelete.disarm(), onDeleteThread(thread.id))
+                          : confirmDelete.arm(thread.id)
                       }
                       className={`shrink-0 rounded-md p-1.5 transition-colors ${
-                        confirmDeleteId === thread.id
+                        confirmDelete.isArmed(thread.id)
                           ? "bg-red-50 text-red-600"
                           : "text-(--color-ink-faint) hover:bg-red-50 hover:text-red-500"
                       }`}

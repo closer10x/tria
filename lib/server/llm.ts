@@ -103,6 +103,24 @@ export function llmProvider(): LlmProvider | null {
 export const NO_PROVIDER_MSG =
   "No AI provider is configured — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY on the server and redeploy.";
 
+/**
+ * One line, for the toast the person actually sees.
+ *
+ * The provider messages are written for whoever fixes the deployment and run
+ * to several sentences of environment-variable instructions — as a toast over
+ * the mail reader they bury the app under text meant for a terminal. The full
+ * version still reaches the runtime log and /api/ai/health, which is where
+ * that audience is looking.
+ */
+export function briefLlmError(e: unknown): string {
+  const status = (e as { status?: number }).status;
+  if (status === 401) return "AI is unavailable — the provider rejected its API key.";
+  if (status === 402) return "AI is unavailable — the provider account is out of credit.";
+  if (status === 429) return "AI is busy — try again in a moment.";
+  if (status === 503) return "AI isn't set up on the server yet.";
+  return "The AI request didn't go through.";
+}
+
 async function chatAnthropic(req: LlmRequest): Promise<string> {
   const client = new Anthropic({ apiKey: readKey("ANTHROPIC_API_KEY")! });
   const response = await client.messages.create({

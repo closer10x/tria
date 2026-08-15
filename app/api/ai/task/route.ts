@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { llmChat, llmProvider, LlmRefusal, NO_PROVIDER_MSG } from "@/lib/server/llm";
+import {
+  briefLlmError,
+  llmChat,
+  llmProvider,
+  LlmRefusal,
+  NO_PROVIDER_MSG,
+} from "@/lib/server/llm";
 
 /**
  * Turn an email into a smart task by reading it: one checklist item per thing
@@ -57,11 +63,13 @@ export type SmartTaskDraft = {
 };
 
 export async function POST(req: NextRequest) {
-  if (!llmProvider())
+  if (!llmProvider()) {
+    console.error(NO_PROVIDER_MSG);
     return NextResponse.json(
-      { ok: false, error: NO_PROVIDER_MSG },
+      { ok: false, error: briefLlmError({ status: 503 }) },
       { status: 503 }
     );
+  }
 
   const { from, subject, body, now } = (await req.json()) as {
     from?: string;
@@ -95,10 +103,11 @@ export async function POST(req: NextRequest) {
         { ok: false, error: "Claude declined to summarise that email." },
         { status: 422 }
       );
+    // full diagnosis to the log, one line to the screen
     console.error("smart task failed", e);
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "Smart task failed" },
-      { status: 500 }
+      { ok: false, error: briefLlmError(e) },
+      { status: (e as { status?: number }).status ?? 500 }
     );
   }
 }
