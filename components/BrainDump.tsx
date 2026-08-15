@@ -56,9 +56,9 @@ export default function BrainDump({
         onClick={() => setOpen(true)}
         title="Brain-dump your tasks — type or talk, one big blur"
         aria-label="Brain-dump tasks"
-        className="absolute bottom-10 right-5 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-(--color-clay) text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
+        className="absolute bottom-10 right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-(--color-clay) text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
       >
-        <SparkIcon className="h-[18px] w-[18px]" />
+        <SparkIcon className="h-6 w-6" />
       </button>
     );
   }

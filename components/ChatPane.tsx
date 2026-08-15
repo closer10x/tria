@@ -477,9 +477,9 @@ export default function ChatPane({
           onClick={() => setNewThreadOpen(true)}
           title="New conversation"
           aria-label="New conversation"
-          className="absolute bottom-10 right-5 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-(--color-clay) text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
+          className="absolute bottom-10 right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-(--color-clay) text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
         >
-          <ChatIcon className="h-[18px] w-[18px]" />
+          <ChatIcon className="h-6 w-6" />
         </button>
       )}
       {!active && newThreadOpen && (

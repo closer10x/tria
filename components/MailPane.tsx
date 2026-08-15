@@ -1267,7 +1267,7 @@ export default function MailPane({
               if (el.scrollHeight - el.scrollTop - el.clientHeight < 400)
                 onLoadMore(folder);
             }}
-            className={`nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pb-3 lg:pt-0 ${
+            className={`nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pb-24 lg:pt-0 ${
               selecting || q ? "" : "pt-[3.25rem]"
             }`}
           >
@@ -1512,9 +1512,9 @@ export default function MailPane({
           <button
             onClick={() => setComposing(true)}
             title="Compose"
-            className="absolute bottom-10 right-5 flex h-11 w-11 items-center justify-center rounded-full bg-(--color-clay) text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
+            className="absolute bottom-10 right-5 flex h-14 w-14 items-center justify-center rounded-full bg-(--color-clay) text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
           >
-            <PenIcon />
+            <PenIcon className="h-6 w-6" />
           </button>
         </>
       ) : (
