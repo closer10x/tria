@@ -65,7 +65,10 @@ export type LlmProvider = "anthropic" | "openrouter";
  * and turns each of those into a working deploy instead of a 401 nobody can
  * see the cause of.
  */
-export function normalizeKey(raw: string | undefined | null): string | null {
+export function normalizeKey(
+  raw: string | undefined | null,
+  provider?: LlmProvider
+): string | null {
   if (!raw) return null;
   let key = raw.trim();
   if (key.length > 1 && /^(["'])[\s\S]*\1$/.test(key)) key = key.slice(1, -1);
@@ -77,6 +80,18 @@ export function normalizeKey(raw: string | undefined | null): string | null {
   // One of those in the value is why a provider can answer "Missing
   // Authentication header" for a key that looks perfect in the dashboard.
   key = key.replace(/[^\x21-\x7e]/g, "");
+  // A whole .env line pasted into the value box — `OPENROUTER_API_KEY=sk-or-…`,
+  // or the `export …` form copied from a shell — is clean printable ASCII that
+  // simply doesn't begin with the key, so nothing above touches it and the
+  // provider answers as if the key were wrong. It is also invisible in a
+  // dashboard field, which is how it survives being re-entered. Take the key
+  // out of the line.
+  if (provider) {
+    const at = key.indexOf(KEY_PREFIX[provider]);
+    if (at > 0) key = key.slice(at);
+  }
+  // quotes that were inside the line rather than wrapping the whole value
+  key = key.replace(/^["']+|["']+$/g, "");
   // a value of "" or " " is a placeholder, not a configured provider
   return key || null;
 }
@@ -120,12 +135,12 @@ export async function resolveKeys(): Promise<ResolvedKeys> {
   }
   const out: ResolvedKeys = {};
   for (const provider of ["anthropic", "openrouter"] as LlmProvider[]) {
-    const fromStore = normalizeKey(stored[provider]);
+    const fromStore = normalizeKey(stored[provider], provider);
     if (fromStore) {
       out[provider] = { key: fromStore, source: "stored" };
       continue;
     }
-    const fromEnv = normalizeKey(process.env[ENV_NAME[provider]]);
+    const fromEnv = normalizeKey(process.env[ENV_NAME[provider]], provider);
     if (fromEnv) out[provider] = { key: fromEnv, source: "env" };
   }
   return out;

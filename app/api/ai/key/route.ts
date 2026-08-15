@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
   // same normalising the env path gets: a key pasted with quotes, a "Bearer "
   // prefix or an invisible character is repaired rather than rejected
-  const clean = normalizeKey(key);
+  const clean = normalizeKey(key, provider);
   if (!clean)
     return NextResponse.json(
       { ok: false, error: "Paste a key first." },
