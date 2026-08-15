@@ -273,6 +273,10 @@ export default function MailPane({
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [composing, setComposing] = useState(false);
+  // multi-select for bulk actions; anchor drives shift-click ranges
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+
   // recipients are committed to pills; `to` is whatever is still being typed
   const [recipients, setRecipients] = useState<string[]>([]);
   const [to, setTo] = useState("");
@@ -372,6 +376,41 @@ export default function MailPane({
           e.subject.toLowerCase().includes(query.toLowerCase()) ||
           e.from.name.toLowerCase().includes(query.toLowerCase())
       );
+
+  const selecting = selectedIds.size > 0;
+  const allSelected =
+    filtered.length > 0 && filtered.every((e) => selectedIds.has(e.id));
+
+  /** Shift-click extends from the last row you touched, like a file list. */
+  const toggleSelect = (id: string, extend = false) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (extend && anchorId) {
+        const from = filtered.findIndex((e) => e.id === anchorId);
+        const to = filtered.findIndex((e) => e.id === id);
+        if (from !== -1 && to !== -1) {
+          const [lo, hi] = from < to ? [from, to] : [to, from];
+          for (let i = lo; i <= hi; i++) next.add(filtered[i].id);
+          return next;
+        }
+      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setAnchorId(id);
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setAnchorId(null);
+  };
+
+  /** Run a per-message action across the selection, then drop it. */
+  const bulk = (fn: (id: string) => void) => {
+    selectedIds.forEach(fn);
+    clearSelection();
+  };
 
   const count = (f: Folder) =>
     emails.filter((e) => e.folder === f && byAccount(e)).length;
@@ -651,7 +690,10 @@ export default function MailPane({
           {multiAccount && (
             <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto px-5 pt-3">
               <button
-                onClick={() => setAccount("all")}
+                onClick={() => {
+                  setAccount("all");
+                  clearSelection();
+                }}
                 className={`shrink-0 rounded-full border px-2.5 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.14em] transition-colors ${
                   activeAccount === "all"
                     ? "border-(--color-ink) bg-(--color-ink) text-white"
@@ -697,6 +739,7 @@ export default function MailPane({
                 key={f.key}
                 onClick={() => {
                   setFolder(f.key);
+                  clearSelection();
                   onFolderChange(f.key);
                 }}
                 className={`shrink-0 border-b-2 pb-1.5 font-display text-[10px] font-medium uppercase tracking-[0.12em] transition-colors ${
@@ -714,6 +757,66 @@ export default function MailPane({
               </button>
             ))}
           </div>
+          {selecting && (
+            <div className="mx-5 mt-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-(--color-clay)/40 bg-(--color-clay-soft)/40 px-2.5 py-2">
+              <span className="font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-(--color-clay)">
+                {selectedIds.size} selected
+              </span>
+              <button
+                onClick={() =>
+                  allSelected
+                    ? clearSelection()
+                    : setSelectedIds(new Set(filtered.map((e) => e.id)))
+                }
+                className="rounded-md border hairline bg-white px-2 py-1 text-[11px] font-medium text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay)"
+              >
+                {allSelected ? "Clear all" : `Select all ${filtered.length}`}
+              </button>
+              <span className="mx-0.5 h-4 w-px bg-(--color-clay)/25" />
+              <button
+                onClick={() => bulk((id) => onToggleStar(id))}
+                title="Star"
+                className="rounded-md p-1.5 text-(--color-ink-soft) transition-colors hover:bg-white hover:text-(--color-gold)"
+              >
+                <StarIcon className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => bulk((id) => onMarkUnread(id))}
+                title="Mark unread"
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-(--color-ink-soft) transition-colors hover:bg-white hover:text-(--color-clay)"
+              >
+                Unread
+              </button>
+              <button
+                onClick={() => bulk((id) => onArchive(id))}
+                title="Archive"
+                className="rounded-md p-1.5 text-(--color-ink-soft) transition-colors hover:bg-white hover:text-(--color-clay)"
+              >
+                <ArchiveIcon className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => bulk((id) => onSnooze(id, snoozeOptions[1]))}
+                title={`Snooze until ${snoozeOptions[1]}`}
+                className="rounded-md p-1.5 text-(--color-ink-soft) transition-colors hover:bg-white hover:text-(--color-clay)"
+              >
+                <ClockIcon className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => bulk((id) => onDelete(id))}
+                title="Delete"
+                className="rounded-md p-1.5 text-(--color-ink-soft) transition-colors hover:bg-white hover:text-red-500"
+              >
+                <TrashIcon className="h-4 w-4" />
+              </button>
+              <button
+                onClick={clearSelection}
+                aria-label="Cancel selection"
+                className="ml-auto rounded-md px-2 py-1 text-[11px] font-medium text-(--color-ink-faint) transition-colors hover:text-(--color-ink)"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
           <div className="px-5 pt-3 pb-2">
             <div
               className={`flex items-center gap-1.5 rounded-lg border bg-white pr-1.5 transition-colors ${
@@ -797,10 +900,53 @@ export default function MailPane({
                   e.dataTransfer.setData("text/tria-email", email.id);
                   e.dataTransfer.effectAllowed = "copy";
                 }}
-                className="group relative w-full cursor-pointer py-3.5 text-left transition-colors hover:bg-(--color-paper)/60"
+                className={`group relative w-full cursor-pointer py-3.5 text-left transition-colors ${
+                  selectedIds.has(email.id)
+                    ? "bg-(--color-clay-soft)/40"
+                    : "hover:bg-(--color-paper)/60"
+                }`}
               >
                 <div className="flex items-start gap-3">
-                  <Avatar initials={email.from.initials} hue={email.from.hue} />
+                  {/* the avatar becomes a checkbox on hover, or while selecting */}
+                  <span
+                    className="relative shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSelect(email.id, e.shiftKey);
+                    }}
+                  >
+                    <span
+                      className={
+                        selecting || selectedIds.has(email.id)
+                          ? "hidden"
+                          : "block group-hover:hidden"
+                      }
+                    >
+                      <Avatar initials={email.from.initials} hue={email.from.hue} />
+                    </span>
+                    <span
+                      title="Select"
+                      className={`flex h-9 w-9 items-center justify-center rounded-full border-[1.5px] transition-colors ${
+                        selectedIds.has(email.id)
+                          ? "border-(--color-clay) bg-(--color-clay) text-white"
+                          : "border-(--color-ink-faint)/50 bg-white text-transparent hover:border-(--color-clay)"
+                      } ${
+                        selecting || selectedIds.has(email.id)
+                          ? "flex"
+                          : "hidden group-hover:flex"
+                      }`}
+                    >
+                      <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none">
+                        <path
+                          d="M2.5 6.5l2.2 2.2L9.5 3.9"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span
