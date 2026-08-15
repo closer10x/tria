@@ -91,7 +91,21 @@ curl https://<deployment>/api/ai/health
 It reports, per provider, whether a key is configured and whether the provider
 actually accepts it — free auth-only calls, no completion is bought, and
 nothing about the key itself is in the response. 200 when at least one
-provider answers, 503 when the AI is down. A 401 here is always one of:
+provider answers, 503 when the AI is down.
+
+Two fields say *why* without disclosing anything: `looksLikeKey` is whether
+the value carries that provider's public prefix (`sk-or-` / `sk-ant-`), and
+`cleaned` is whether the raw value needed repair before use. Read them
+together:
+
+| `looksLikeKey` | `cleaned` | What it is |
+| --- | --- | --- |
+| false | false | Not a key for this provider — a placeholder, a fragment, or the wrong provider's key in the variable |
+| false | true | The value was damaged in transit badly enough to lose the prefix |
+| true | true | A real key that arrived wrapped or padded; it works now, but re-paste it clean |
+| true | false | A well-formed key the provider still refuses — revoked, or from another account |
+
+A 401 here is always one of:
 
 - the key is revoked or belongs to another account — issue a new one
   ([OpenRouter](https://openrouter.ai/keys), [Anthropic](https://console.anthropic.com/settings/keys))
