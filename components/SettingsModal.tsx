@@ -190,6 +190,9 @@ export default function SettingsModal({
   // 0 = accounts home; 1–3 = the add-account wizard
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // removing a saved login is irreversible (encrypted password/token goes with
+  // it), so ✕ arms a confirm instead of deleting outright
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const setProvider = (p: Provider) => {
     const { label: _l, note: _n, ...hosts } = providerPresets[p];
@@ -408,13 +411,33 @@ export default function SettingsModal({
                               Finish setup
                             </button>
                           )}
-                          <button
-                            onClick={() => onDeleteSavedAccount(a.id)}
-                            title="Remove saved account"
-                            className="shrink-0 rounded-md px-1 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
-                          >
-                            ✕
-                          </button>
+                          {confirmDeleteId === a.id ? (
+                            <span className="flex shrink-0 items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  setConfirmDeleteId(null);
+                                  onDeleteSavedAccount(a.id);
+                                }}
+                                className="rounded-md bg-red-500 px-2 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-white transition-transform hover:scale-[1.03]"
+                              >
+                                Remove
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="rounded-md border hairline px-2 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.12em] text-(--color-ink-soft) transition-colors hover:border-(--color-ink-faint)"
+                              >
+                                Keep
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteId(a.id)}
+                              title="Remove saved account"
+                              className="shrink-0 rounded-md px-1 text-(--color-ink-faint) transition-colors hover:bg-red-50 hover:text-red-500"
+                            >
+                              ✕
+                            </button>
+                          )}
                         </div>
                       );
                     })}
