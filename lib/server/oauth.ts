@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "crypto";
 import { Provider } from "@/lib/types";
 import { credAad, cryptoReady, decrypt, encrypt } from "@/lib/server/crypto";
 import { loadCreds, saveCreds, StoredAccount } from "@/lib/server/creds";
@@ -74,18 +75,26 @@ export const providers: Record<OAuthProvider, ProviderConfig> = {
 export const isOAuthProvider = (v: string): v is OAuthProvider =>
   v === "microsoft" || v === "google";
 
-export const oauthConfigured = (p: OAuthProvider) =>
-  Boolean(providers[p].clientId && providers[p].clientSecret);
+/** Only a client ID is required — PKCE covers registrations without a secret. */
+export const oauthConfigured = (p: OAuthProvider) => Boolean(providers[p].clientId);
 
 export const redirectUri = (origin: string, p: OAuthProvider) =>
   `${origin}/api/oauth/${p}/callback`;
 
 export const STATE_COOKIE = "tria_oauth_state";
 
+/** PKCE verifier/challenge pair (RFC 7636). */
+export function makePkce() {
+  const verifier = randomBytes(48).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
 export function buildAuthUrl(
   p: OAuthProvider,
   origin: string,
-  state: string
+  state: string,
+  codeChallenge: string
 ): string {
   const cfg = providers[p];
   const params = new URLSearchParams({
@@ -94,6 +103,8 @@ export function buildAuthUrl(
     redirect_uri: redirectUri(origin, p),
     scope: cfg.scopes,
     state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
     ...cfg.extraAuthParams,
   });
   return `${cfg.authUrl}?${params}`;
@@ -118,7 +129,8 @@ async function postToken(
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: cfg.clientId!,
-      client_secret: cfg.clientSecret!,
+      // omitted for public-client registrations, where PKCE is the proof
+      ...(cfg.clientSecret ? { client_secret: cfg.clientSecret } : {}),
       ...body,
     }),
   });
@@ -144,13 +156,15 @@ const tokenAad = (email: string, p: OAuthProvider) => `${email}|oauth|${p}`;
 export async function completeSignIn(
   p: OAuthProvider,
   code: string,
-  origin: string
+  origin: string,
+  codeVerifier: string
 ): Promise<{ email: string } | { error: string }> {
   if (!cryptoReady) return { error: "TRIA_ENC_KEY is not set on the server." };
   const tok = await postToken(p, {
     grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri(origin, p),
+    code_verifier: codeVerifier,
   });
   if (tok.error || !tok.access_token)
     return { error: tok.error_description ?? tok.error ?? "Token exchange failed" };

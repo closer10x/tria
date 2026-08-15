@@ -21,11 +21,12 @@ export async function GET(
   const state = req.nextUrl.searchParams.get("state");
   if (!code || !state) return fail("Sign-in was cancelled.");
 
-  const expected = req.cookies.get(STATE_COOKIE)?.value;
-  if (expected !== `${provider}:${state}`)
+  const cookie = req.cookies.get(STATE_COOKIE)?.value ?? "";
+  const [cookieProvider, cookieState, verifier] = cookie.split(":");
+  if (cookieProvider !== provider || cookieState !== state || !verifier)
     return fail("Sign-in could not be verified — please try again.");
 
-  const result = await completeSignIn(provider, code, origin);
+  const result = await completeSignIn(provider, code, origin, verifier);
   if ("error" in result) return fail(result.error);
 
   // open a live session for the account we just linked
