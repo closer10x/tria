@@ -1,9 +1,12 @@
-import { supabase } from "@/lib/supabase";
+import { db, hasServiceKey } from "@/lib/server/db";
 import { Provider } from "@/lib/types";
 
 /**
  * Server-managed email credential store.
- * Lives in app_settings row 2 (row 1 is the client-synced UI settings).
+ * With SUPABASE_SERVICE_ROLE_KEY set, lives in the `credentials` table (RLS on,
+ * no policies — unreachable with the public anon key); existing data in the
+ * legacy location (app_settings row 2) is migrated over on first read.
+ * Without the key, falls back to the legacy row so nothing breaks.
  * Passwords are stored only as AES-256-GCM ciphertext (see lib/server/crypto.ts);
  * the encryption key never leaves the app server.
  */
@@ -25,27 +28,64 @@ export type CredData = {
   connectedAccountIds: string[];
 };
 
-const ROW_ID = 2;
+const LEGACY_ROW_ID = 2;
+const EMPTY: CredData = { accounts: [], connectedAccountIds: [] };
 
-export async function loadCreds(): Promise<CredData> {
-  if (!supabase) return { accounts: [], connectedAccountIds: [] };
-  const { data } = await supabase
+const normalize = (d: Partial<CredData> | null | undefined): CredData => ({
+  accounts: d?.accounts ?? [],
+  connectedAccountIds: d?.connectedAccountIds ?? [],
+});
+
+/** One-time move of legacy app_settings row 2 into the locked table. */
+async function migrateLegacy(): Promise<CredData | null> {
+  if (!db) return null;
+  const { data } = await db
     .from("app_settings")
     .select("data")
-    .eq("id", ROW_ID)
+    .eq("id", LEGACY_ROW_ID)
     .maybeSingle();
-  const d = (data?.data ?? {}) as Partial<CredData>;
-  return {
-    accounts: d.accounts ?? [],
-    connectedAccountIds: d.connectedAccountIds ?? [],
-  };
+  if (!data) return null;
+  const creds = normalize(data.data as Partial<CredData>);
+  const { error } = await db
+    .from("credentials")
+    .upsert({ id: 1, data: creds, updated_at: new Date().toISOString() });
+  if (error) return creds; // keep serving from legacy; retry next read
+  await db.from("app_settings").delete().eq("id", LEGACY_ROW_ID);
+  return creds;
+}
+
+export async function loadCreds(): Promise<CredData> {
+  if (!db) return EMPTY;
+  if (hasServiceKey) {
+    const { data } = await db
+      .from("credentials")
+      .select("data")
+      .eq("id", 1)
+      .maybeSingle();
+    if (data) return normalize(data.data as Partial<CredData>);
+    return (await migrateLegacy()) ?? EMPTY;
+  }
+  const { data } = await db
+    .from("app_settings")
+    .select("data")
+    .eq("id", LEGACY_ROW_ID)
+    .maybeSingle();
+  return normalize(data?.data as Partial<CredData> | undefined);
 }
 
 export async function saveCreds(creds: CredData): Promise<void> {
-  if (!supabase) throw new Error("Supabase is not configured (missing env vars)");
-  const { error } = await supabase
-    .from("app_settings")
-    .upsert({ id: ROW_ID, data: creds, updated_at: new Date().toISOString() });
+  if (!db) throw new Error("Supabase is not configured (missing env vars)");
+  const { error } = hasServiceKey
+    ? await db
+        .from("credentials")
+        .upsert({ id: 1, data: creds, updated_at: new Date().toISOString() })
+    : await db
+        .from("app_settings")
+        .upsert({
+          id: LEGACY_ROW_ID,
+          data: creds,
+          updated_at: new Date().toISOString(),
+        });
   if (error) throw new Error(`Failed to save accounts: ${error.message}`);
 }
 
