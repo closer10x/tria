@@ -27,7 +27,6 @@ import {
   syncTasks,
   syncThreads,
 } from "@/lib/persist";
-import { mockReplies, seedEmails, seedTasks, seedThreads } from "@/lib/data";
 import {
   AiMessage,
   Attachment,
@@ -45,9 +44,7 @@ const defaultSettings: Settings = {
   email: "jon.garcia.a@gmail.com",
   signature: "— Jon",
   provider: "gmail",
-  accounts: [
-    { id: "acc1", email: "jon.garcia.a@gmail.com", provider: "gmail" },
-  ],
+  accounts: [],
   imapHost: "imap.gmail.com",
   imapPort: 993,
   smtpHost: "smtp.gmail.com",
@@ -114,22 +111,15 @@ function buildSmartTask(email: Email): Task {
 }
 
 export default function Home() {
-  const [emails, setEmails] = useState<Email[]>(seedEmails);
-  const [tasks, setTasks] = useState<Task[]>(seedTasks);
-  const [threads, setThreads] = useState<Thread[]>(seedThreads);
+  const [emails, setEmails] = useState<Email[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [threads, setThreads] = useState<Thread[]>([]);
 
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<"threads" | "ai">("threads");
   const [mobileTab, setMobileTab] = useState<"mail" | "tasks" | "chat">("mail");
-  const [aiMessages, setAiMessages] = useState<AiMessage[]>([
-    {
-      id: "ai0",
-      role: "ai",
-      text: "Morning, Jon. I'm watching your mail, tasks, and threads. Send me any email or task — or ask me anything.",
-      time: "9:00 AM",
-    },
-  ]);
+  const [aiMessages, setAiMessages] = useState<AiMessage[]>([]);
   const [aiThinking, setAiThinking] = useState(false);
   const [aiUnread, setAiUnread] = useState(false);
   const [pendingAttachment, setPendingAttachment] =
@@ -424,8 +414,8 @@ export default function Home() {
     setLiveAccounts(remaining);
     setSelectedEmailId(null);
     if (remaining.length === 0) {
-      setEmails(seedEmails);
-      showToast("Back to demo data");
+      setEmails([]);
+      showToast("Disconnected — no accounts connected");
     } else {
       // drop the disconnected account's messages, keep the rest
       setEmails((prev) => prev.filter((e) => !e.accountId || e.accountId !== account));
@@ -610,7 +600,7 @@ export default function Home() {
 
   const shareEmailToThread = (email: Email) => {
     setPendingAttachment({ type: "email", refId: email.id });
-    if (!activeThreadId) setActiveThreadId(threads[0].id);
+    if (!activeThreadId && threads.length > 0) setActiveThreadId(threads[0].id);
     setMobileTab("chat");
     setRightTab("threads");
     showToast("✉ Email attached — pick a thread and send");
@@ -618,7 +608,7 @@ export default function Home() {
 
   const discussTask = (task: Task) => {
     setPendingAttachment({ type: "task", refId: task.id });
-    if (!activeThreadId) setActiveThreadId(threads[0].id);
+    if (!activeThreadId && threads.length > 0) setActiveThreadId(threads[0].id);
     setMobileTab("chat");
     setRightTab("threads");
     showToast("✦ Task attached — send it to the thread");
@@ -735,27 +725,6 @@ export default function Home() {
       )
     );
     setPendingAttachment(null);
-
-    // simulate a teammate replying
-    setTimeout(() => setTypingIn(threadId), 700);
-    setTimeout(() => {
-      setTypingIn(null);
-      const replies = mockReplies[threadId] ?? ["Sounds good!"];
-      const reply: Message = {
-        id: nextId("m"),
-        author:
-          threads.find((t) => t.id === threadId)?.members.find(
-            (m) => m !== "You"
-          ) ?? "Teammate",
-        text: replies[Math.floor(Math.random() * replies.length)],
-        time: nowTime(),
-      };
-      setThreads((prev) =>
-        prev.map((t) =>
-          t.id === threadId ? { ...t, messages: [...t.messages, reply] } : t
-        )
-      );
-    }, 2300);
   };
 
   const unreadCount = emails.filter(

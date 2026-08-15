@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Attachment, Email, Task, Thread } from "@/lib/types";
 import AttachmentCard from "./AttachmentCard";
-import { ClipIcon } from "./ui";
+import { ChatIcon, ClipIcon } from "./ui";
 
 export function filePickerHandler(
   onSetPending: (a: Attachment) => void,
@@ -74,6 +74,17 @@ export default function ChatPane({
     <div className="flex h-full min-h-0 flex-col">
       {!active ? (
         <div className="nice-scroll min-h-0 flex-1 divide-y divide-(--color-line) overflow-y-auto px-5 pt-1 pb-3">
+          {threads.length === 0 && (
+            <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
+              <ChatIcon className="h-5 w-5 text-(--color-ink-faint)" />
+              <p className="text-xs text-(--color-ink-faint)">
+                No conversations yet.
+              </p>
+              <p className="text-[11px] leading-relaxed text-(--color-ink-faint)">
+                Share an email or a task to start one.
+              </p>
+            </div>
+          )}
           {threads.map((thread) => {
             const last = thread.messages[thread.messages.length - 1];
             return (
