@@ -261,6 +261,8 @@ export async function apiSaveDraft(payload: {
 
 export async function apiSend(payload: {
   to: string;
+  cc?: string;
+  bcc?: string;
   subject: string;
   text: string;
   inReplyTo?: string;
@@ -357,4 +359,45 @@ export async function apiSearch(
   const data = (await res.json()) as { ok: boolean; messages?: Email[]; error?: string };
   if (!data.ok || !data.messages) throw new Error(data.error ?? "Search failed");
   return data.messages;
+}
+
+export type AiMailAnswer = {
+  text: string;
+  citations: {
+    id: string;
+    uid: number;
+    folder: Folder;
+    accountId: string;
+    subject: string;
+    from: string;
+    time: string;
+  }[];
+  /** full message objects for the citations, ready to open in the reader */
+  messages: Email[];
+  trail: string[];
+};
+
+/** Ask Claude a question about the mailbox; it searches and cites. */
+export async function apiAskMail(payload: {
+  question: string;
+  account?: string;
+  tz: string;
+  now: string;
+  signal?: AbortSignal;
+}): Promise<AiMailAnswer> {
+  const { signal, ...body } = payload;
+  const res = await netFetch("/api/ai/mail-search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const data = (await res.json()) as { ok: boolean; error?: string } & Partial<AiMailAnswer>;
+  if (!data.ok) throw new Error(data.error ?? "The AI search failed.");
+  return {
+    text: data.text ?? "",
+    citations: data.citations ?? [],
+    messages: (data.messages ?? []).filter(Boolean) as Email[],
+    trail: data.trail ?? [],
+  };
 }

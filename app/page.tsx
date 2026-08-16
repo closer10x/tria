@@ -1063,9 +1063,12 @@ export default function Home() {
     showToast("Send undone — your message is back");
   };
 
-  const sendReply = (email: Email, text: string) => {
+  /** Recipients the reply box settled on — To/Cc/Bcc are editable there. */
+  type ReplyRecipients = { to: string; cc?: string; bcc?: string };
+
+  const sendReply = (email: Email, text: string, rcpt?: ReplyRecipients) => {
     holdSend(`Replying to ${email.from.name}`, { kind: "reply", text }, () =>
-      dispatchReply(email, text)
+      dispatchReply(email, text, rcpt)
     );
   };
 
@@ -1077,6 +1080,8 @@ export default function Home() {
    */
   const deliver = (opts: {
     to: string;
+    cc?: string;
+    bcc?: string;
     subject: string;
     /** The user's text, before the signature is appended. */
     body: string;
@@ -1096,6 +1101,8 @@ export default function Home() {
     const localId = nextId("e");
     const payload = {
       to: opts.to,
+      cc: opts.cc,
+      bcc: opts.bcc,
       subject: opts.subject,
       text,
       inReplyTo: opts.inReplyTo,
@@ -1149,13 +1156,15 @@ export default function Home() {
     setEmails((prev) => [sent, ...prev]);
   };
 
-  const dispatchReply = (email: Email, text: string) => {
+  const dispatchReply = (email: Email, text: string, rcpt?: ReplyRecipients) => {
     // reply from the account the email arrived in
     const fromAccount = email.accountId ?? liveAccounts[0] ?? settings.email;
     patchEmail(email.id, { replied: true });
     deliver({
-      to: email.from.email,
-      subject: `Re: ${email.subject}`,
+      to: rcpt?.to || email.from.email,
+      cc: rcpt?.cc || undefined,
+      bcc: rcpt?.bcc || undefined,
+      subject: /^re:/i.test(email.subject) ? email.subject : `Re: ${email.subject}`,
       body: text,
       account: fromAccount,
       inReplyTo: email.messageId,

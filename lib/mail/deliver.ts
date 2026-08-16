@@ -12,6 +12,8 @@ import { GraphConsentError, sendViaGraph } from "./graph";
 
 export type OutgoingMail = {
   to: string;
+  cc?: string;
+  bcc?: string;
   subject: string;
   text: string;
   inReplyTo?: string;
@@ -27,6 +29,8 @@ export async function deliverMail(
   const mail = {
     from: cfg.user,
     to: msg.to,
+    cc: msg.cc || undefined,
+    bcc: msg.bcc || undefined,
     subject: msg.subject || "(no subject)",
     text: msg.text,
     inReplyTo: msg.inReplyTo,

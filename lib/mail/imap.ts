@@ -185,6 +185,8 @@ export type WireEmail = {
   sortDate?: number; // epoch ms, for merging accounts into one timeline
   from: { name: string; email: string; initials: string; hue: string };
   to?: string;
+  toAll?: string[];
+  cc?: string[];
   subject: string;
   preview: string;
   body: string[];
@@ -208,7 +210,12 @@ const FETCH_FIELDS = {
 function toWireEmail(
   msg: {
     uid: number;
-    envelope?: { from?: { name?: string; address?: string }[]; to?: { address?: string }[]; subject?: string };
+    envelope?: {
+      from?: { name?: string; address?: string }[];
+      to?: { address?: string }[];
+      cc?: { address?: string }[];
+      subject?: string;
+    };
     flags?: Set<string>;
     internalDate?: Date | string;
     bodyStructure?: unknown;
@@ -235,6 +242,8 @@ function toWireEmail(
       hue: hueOf(fromAddr?.address ?? name),
     },
     to: env?.to?.[0]?.address,
+    toAll: env?.to?.map((a) => a.address).filter((a): a is string => Boolean(a)),
+    cc: env?.cc?.map((a) => a.address).filter((a): a is string => Boolean(a)),
     subject: env?.subject ?? "(no subject)",
     preview: "",
     body: [],

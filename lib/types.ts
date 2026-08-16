@@ -35,6 +35,9 @@ export type Email = {
   accountId?: string; // which connected account this message belongs to
   from: Sender;
   to?: string;
+  /** every To/Cc address on the message — what Reply All needs */
+  toAll?: string[];
+  cc?: string[];
   subject: string;
   preview: string;
   body: string[];

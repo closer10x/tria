@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Email, Folder, OutgoingAttachment } from "@/lib/types";
 import { apiContacts, apiSearch, Contact } from "@/lib/mailApi";
 import MailDrawer from "./MailDrawer";
+import AskMail from "./AskMail";
 import {
   ArchiveIcon,
   Avatar,
@@ -240,7 +241,11 @@ export default function MailPane({
   onDelete: (id: string) => void;
   onSnooze: (id: string, until: string) => void;
   onRestore: (id: string) => void;
-  onReply: (email: Email, text: string) => void;
+  onReply: (
+    email: Email,
+    text: string,
+    recipients?: { to: string; cc?: string; bcc?: string }
+  ) => void;
   onComposeSend: (
     to: string,
     subject: string,
@@ -285,13 +290,13 @@ export default function MailPane({
   snoozeOptions: string[];
 }) {
   const [query, setQuery] = useState("");
-  const [aiMode, setAiMode] = useState(false);
   const [folder, setFolder] = useState<Folder>("inbox");
   // mobile-only chrome: burger drawer + a search field that opens on demand
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleCustom, setScheduleCustom] = useState("");
+  const [askOpen, setAskOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const mobileSearchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -302,6 +307,12 @@ export default function MailPane({
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
+  // reply recipients — editable like a real client; seeded by Reply / Reply All
+  const [replyTo, setReplyTo] = useState("");
+  const [replyCc, setReplyCc] = useState("");
+  const [replyBcc, setReplyBcc] = useState("");
+  const [replyCcOpen, setReplyCcOpen] = useState(false);
+  const [replyAll, setReplyAll] = useState(false);
   const [composing, setComposing] = useState(false);
   // multi-select for bulk actions; anchor drives shift-click ranges
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -402,7 +413,9 @@ export default function MailPane({
   useEffect(() => {
     if (!restoreDraft) return;
     if (restoreDraft.kind === "reply") {
-      setReplyOpen(true);
+      // an undone reply comes back addressed the way it was going out
+      if (selected) seedReply(selected, false);
+      else setReplyOpen(true);
       setReplyText(restoreDraft.text);
     } else {
       setComposing(true);
@@ -491,7 +504,8 @@ export default function MailPane({
   // full mailbox history. Until then (or offline) the local match is shown.
   const filtered = q && serverResults ? serverResults : localFiltered;
   const searchingAll = Boolean(q && serverResults);
-  const aiResult = aiMode && smart && smart.chips.length ? smart : null;
+  // understood-filter chips ("unread · from sophia") show whenever the parser found intent
+  const aiResult = smart && smart.chips.length ? smart : null;
 
   const selecting = selectedIds.size > 0;
   const allSelected =
@@ -541,9 +555,37 @@ export default function MailPane({
     setSnoozeOpen(false);
   };
 
+  /** Seed the reply recipients from the message. Reply All = everyone but me. */
+  const seedReply = (email: Email, all: boolean) => {
+    const me = new Set(accounts.map((a) => a.toLowerCase()));
+    const own = email.accountId?.toLowerCase();
+    setReplyTo(email.from.email);
+    if (all) {
+      const others = [...(email.toAll ?? []), ...(email.cc ?? [])].filter(
+        (a) => a && !me.has(a.toLowerCase()) && a.toLowerCase() !== own && a.toLowerCase() !== email.from.email.toLowerCase()
+      );
+      const uniq = Array.from(new Set(others.map((a) => a.toLowerCase()))).map(
+        (l) => others.find((a) => a.toLowerCase() === l)!
+      );
+      setReplyCc(uniq.join(", "));
+      setReplyCcOpen(uniq.length > 0);
+    } else {
+      setReplyCc("");
+      setReplyCcOpen(false);
+    }
+    setReplyBcc("");
+    setReplyAll(all);
+    setReplyOpen(true);
+  };
+
   const submitReply = () => {
     if (!selected || !replyText.trim()) return;
-    onReply(selected, replyText.trim());
+    const to = replyTo.trim() || selected.from.email;
+    onReply(selected, replyText.trim(), {
+      to,
+      cc: replyCc.trim() || undefined,
+      bcc: replyBcc.trim() || undefined,
+    });
     closeDetailState();
   };
 
@@ -1043,6 +1085,14 @@ export default function MailPane({
                   </svg>
                 </button>
                 <button
+                  onClick={() => setAskOpen(true)}
+                  aria-label="Ask your mail"
+                  title="Ask your mail — AI search"
+                  className="glass-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-(--color-clay) transition-colors"
+                >
+                  <SparkIcon className="h-4 w-4" />
+                </button>
+                <button
                   onClick={() => onRefresh(folder)}
                   disabled={refreshing}
                   aria-label="Refresh mail"
@@ -1187,29 +1237,21 @@ export default function MailPane({
           <div className="hidden px-5 pt-3 pb-2 lg:block">
             <div
               className={`flex items-center gap-1.5 rounded-lg border bg-white pr-1.5 transition-colors ${
-                aiMode ? "border-(--color-clay)/50" : "hairline"
+                aiResult ? "border-(--color-clay)/50" : "hairline"
               }`}
             >
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={
-                  aiMode
-                    ? "Ask your mail… “unread from maya with attachments”"
-                    : "Search mail…"
-                }
+                placeholder="Search mail…"
                 className="min-w-0 flex-1 bg-transparent px-3.5 py-2 text-sm outline-none placeholder:text-(--color-ink-faint)"
               />
               <button
-                onClick={() => setAiMode((v) => !v)}
-                title={aiMode ? "AI search on — click for plain search" : "Switch to AI search"}
-                className={`flex h-7 items-center gap-1 rounded-md px-2 font-display text-[9px] font-semibold uppercase tracking-[0.14em] transition-colors ${
-                  aiMode
-                    ? "bg-(--color-clay) text-white"
-                    : "bg-(--color-paper) text-(--color-ink-faint) hover:text-(--color-clay)"
-                }`}
+                onClick={() => setAskOpen(true)}
+                title="Ask your mail — AI search"
+                className="flex h-7 items-center gap-1 rounded-md bg-(--color-clay-soft) px-2 font-display text-[9px] font-semibold uppercase tracking-[0.14em] text-(--color-clay) transition-colors hover:bg-(--color-clay) hover:text-white"
               >
-                <SparkIcon className="h-3 w-3" /> AI
+                <SparkIcon className="h-3 w-3" /> Ask
               </button>
             </div>
             {aiResult && (
@@ -1435,7 +1477,7 @@ export default function MailPane({
                         onClick={(e) => {
                           e.stopPropagation();
                           onSelect(email.id);
-                          setReplyOpen(true);
+                          seedReply(email, false);
                         }}
                       >
                         <ReplyIcon className="h-3.5 w-3.5" />
@@ -1533,12 +1575,18 @@ export default function MailPane({
             <div className="relative flex items-center gap-0.5">
               <IconBtn
                 title="Reply"
-                onClick={() => {
-                  setReplyOpen(true);
-                  if (!replyText) setReplyText("");
-                }}
+                onClick={() => seedReply(selected, false)}
               >
                 <ReplyIcon className="h-4 w-4" />
+              </IconBtn>
+              <IconBtn
+                title="Reply all"
+                onClick={() => seedReply(selected, true)}
+              >
+                <span className="flex items-center">
+                  <ReplyIcon className="h-4 w-4" />
+                  <ReplyIcon className="-ml-2.5 h-4 w-4" />
+                </span>
               </IconBtn>
               <button
                 title={selected.starred ? "Unstar" : "Star"}
@@ -1725,10 +1773,25 @@ export default function MailPane({
           {/* reply composer */}
           {replyOpen ? (
             <div className="rise-in mt-4 rounded-xl border hairline bg-white p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="font-display text-[10px] font-medium uppercase tracking-[0.2em] text-(--color-ink-faint)">
-                  Reply to {selected.from.name}
-                </p>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1 rounded-lg bg-(--color-paper) p-0.5">
+                  <button
+                    onClick={() => seedReply(selected, false)}
+                    className={`rounded-md px-2 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.14em] transition-colors ${
+                      !replyAll ? "bg-white text-(--color-ink) shadow-sm" : "text-(--color-ink-faint)"
+                    }`}
+                  >
+                    Reply
+                  </button>
+                  <button
+                    onClick={() => seedReply(selected, true)}
+                    className={`rounded-md px-2 py-1 font-display text-[9px] font-semibold uppercase tracking-[0.14em] transition-colors ${
+                      replyAll ? "bg-white text-(--color-ink) shadow-sm" : "text-(--color-ink-faint)"
+                    }`}
+                  >
+                    Reply all
+                  </button>
+                </div>
                 <button
                   onClick={() => setReplyText(draftReply(selected))}
                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-(--color-clay) hover:opacity-70"
@@ -1736,6 +1799,55 @@ export default function MailPane({
                   <SparkIcon className="h-3 w-3" /> AI draft
                 </button>
               </div>
+
+              {/* recipients — editable, like a real client */}
+              <div className="mb-2 space-y-1 border-b hairline pb-2">
+                <label className="flex items-center gap-2 text-xs">
+                  <span className="w-8 shrink-0 font-display text-[9px] font-medium uppercase tracking-[0.16em] text-(--color-ink-faint)">
+                    To
+                  </span>
+                  <input
+                    value={replyTo}
+                    onChange={(e) => setReplyTo(e.target.value)}
+                    className="min-w-0 flex-1 bg-transparent py-1 outline-none"
+                  />
+                  {!replyCcOpen && (
+                    <button
+                      onClick={() => setReplyCcOpen(true)}
+                      className="shrink-0 font-display text-[9px] font-semibold uppercase tracking-[0.14em] text-(--color-ink-faint) hover:text-(--color-clay)"
+                    >
+                      Cc / Bcc
+                    </button>
+                  )}
+                </label>
+                {replyCcOpen && (
+                  <>
+                    <label className="flex items-center gap-2 text-xs">
+                      <span className="w-8 shrink-0 font-display text-[9px] font-medium uppercase tracking-[0.16em] text-(--color-ink-faint)">
+                        Cc
+                      </span>
+                      <input
+                        value={replyCc}
+                        onChange={(e) => setReplyCc(e.target.value)}
+                        placeholder="name@example.com, …"
+                        className="min-w-0 flex-1 bg-transparent py-1 outline-none placeholder:text-(--color-ink-faint)"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-xs">
+                      <span className="w-8 shrink-0 font-display text-[9px] font-medium uppercase tracking-[0.16em] text-(--color-ink-faint)">
+                        Bcc
+                      </span>
+                      <input
+                        value={replyBcc}
+                        onChange={(e) => setReplyBcc(e.target.value)}
+                        placeholder="hidden recipients"
+                        className="min-w-0 flex-1 bg-transparent py-1 outline-none placeholder:text-(--color-ink-faint)"
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+
               <textarea
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
@@ -1768,13 +1880,32 @@ export default function MailPane({
               </div>
             </div>
           ) : (
-            <button
-              onClick={() => setReplyOpen(true)}
-              className="mt-4 flex w-full items-center gap-2 rounded-xl border hairline bg-white px-3.5 py-2.5 text-left text-[13px] text-(--color-ink-faint) transition-colors hover:border-(--color-clay)/40"
-            >
-              <ReplyIcon className="h-3.5 w-3.5" />
-              Reply to {selected.from.name.split(" ")[0]}…
-            </button>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => seedReply(selected, false)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border hairline bg-white px-3.5 py-2.5 text-left text-[13px] text-(--color-ink-faint) transition-colors hover:border-(--color-clay)/40"
+              >
+                <ReplyIcon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Reply to {selected.from.name.split(" ")[0]}…</span>
+              </button>
+              {(() => {
+                const others = [...(selected.toAll ?? []), ...(selected.cc ?? [])].filter(
+                  (a) => a && a.toLowerCase() !== selected.from.email.toLowerCase() &&
+                    !accounts.some((acc) => acc.toLowerCase() === a.toLowerCase())
+                );
+                return others.length > 0 ? (
+                  <button
+                    onClick={() => seedReply(selected, true)}
+                    title={`Reply to ${selected.from.name} and ${others.length} other${others.length === 1 ? "" : "s"}`}
+                    className="flex shrink-0 items-center gap-1.5 rounded-xl border hairline bg-white px-3 py-2.5 text-[12px] font-medium text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/40 hover:text-(--color-clay)"
+                  >
+                    <ReplyIcon className="h-3.5 w-3.5" />
+                    <ReplyIcon className="-ml-2.5 h-3.5 w-3.5" />
+                    All
+                  </button>
+                ) : null;
+              })()}
+            </div>
           )}
         </div>
       )}
@@ -1847,6 +1978,15 @@ export default function MailPane({
         </div>
       )}
 
+      <AskMail
+        open={askOpen}
+        onClose={() => setAskOpen(false)}
+        account={activeAccount}
+        onOpenEmail={(email) => {
+          setAskOpen(false);
+          onSelect(email.id, email);
+        }}
+      />
       <MailDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
