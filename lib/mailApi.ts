@@ -155,26 +155,38 @@ export async function apiMessages(
   return data.messages;
 }
 
+type FetchedMessage = {
+  body: string[];
+  html?: string;
+  messageId?: string;
+  references?: string[];
+  // envelope, present so a caller holding only the id can rebuild the row
+  from?: { name: string; email: string; initials: string; hue: string };
+  subject?: string;
+  time?: string;
+};
+
 export async function apiBody(
   role: Folder,
   uid: number,
   account?: string
-): Promise<{ body: string[]; html?: string; messageId?: string; references?: string[] }> {
+): Promise<FetchedMessage> {
   const res = await netFetch(
     `/api/mail/message?role=${role}&uid=${uid}${
       account ? `&account=${encodeURIComponent(account)}` : ""
     }`
   );
-  const data = (await res.json()) as {
-    ok: boolean;
-    body?: string[];
-    html?: string;
-    messageId?: string;
-    references?: string[];
-    error?: string;
-  };
+  const data = (await res.json()) as { ok: boolean; error?: string } & FetchedMessage;
   if (!data.ok || !data.body) throw new Error(data.error ?? "Fetch failed");
-  return { body: data.body, html: data.html, messageId: data.messageId, references: data.references };
+  return {
+    body: data.body,
+    html: data.html,
+    messageId: data.messageId,
+    references: data.references,
+    from: data.from,
+    subject: data.subject,
+    time: data.time,
+  };
 }
 
 export async function apiAction(

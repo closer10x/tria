@@ -828,9 +828,44 @@ export default function Home() {
     setTimeout(() => setHighlightTaskId(null), 2000);
   };
 
-  const openSourceEmail = (emailId: string) => {
+  const openSourceEmail = async (emailId: string) => {
     setMobileTab("mail");
-    openEmail(emailId);
+    // already in the current page — just open it
+    if (emails.some((e) => e.id === emailId)) {
+      openEmail(emailId);
+      return;
+    }
+    // Not loaded (it scrolled off, or lives in another account's inbox). The
+    // id is stable — live-{account}-{uid}-{role} — so fetch that one message
+    // and adopt it into state rather than dead-ending on a blank reader.
+    const m = /^live-(.+)-(\d+)-([a-z]+)$/.exec(emailId);
+    if (!m) {
+      showToast("Couldn't find the original email");
+      return;
+    }
+    const [, account, uidStr, role] = m;
+    showToast("Opening the original email…");
+    try {
+      const msg = await apiBody(role as Folder, Number(uidStr), account);
+      const adopted: Email = {
+        id: emailId,
+        uid: Number(uidStr),
+        accountId: account,
+        from: msg.from ?? { name: account, email: account, initials: "?", hue: "" },
+        subject: msg.subject ?? "(no subject)",
+        preview: msg.body[0] ?? "",
+        body: msg.body,
+        html: msg.html,
+        messageId: msg.messageId,
+        references: msg.references,
+        time: msg.time ?? "",
+        read: true,
+        folder: role as Folder,
+      };
+      openEmail(emailId, adopted);
+    } catch {
+      showToast("That email is no longer on the server");
+    }
   };
 
   const patchEmail = (id: string, patch: Partial<Email>) =>

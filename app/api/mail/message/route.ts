@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { simpleParser } from "mailparser";
 import { COOKIE } from "@/lib/mail/store";
 import { resolveAccount } from "@/lib/mail/resolve";
-import { isRole, resolveRole, Role, withImap } from "@/lib/mail/imap";
+import {
+  formatTime,
+  hueOf,
+  initialsOf,
+  isRole,
+  resolveRole,
+  Role,
+  withImap,
+} from "@/lib/mail/imap";
 import { mailErrorMessage } from "@/lib/mail/errors";
 import { sanitizeEmailHtml, textToEmailHtml } from "@/lib/mail/render";
 
@@ -18,6 +26,7 @@ export async function GET(req: NextRequest) {
   const uid = Number(req.nextUrl.searchParams.get("uid"));
   if (!uid)
     return NextResponse.json({ ok: false, error: "Missing uid" }, { status: 400 });
+  const tz = req.nextUrl.searchParams.get("tz") ?? undefined;
   try {
     const result = await withImap(cfg, async (client) => {
       const path = await resolveRole(client, role);
@@ -45,11 +54,26 @@ export async function GET(req: NextRequest) {
               : "";
         // opening a message marks it read
         await client.messageFlagsAdd(String(uid), ["\\Seen"], { uid: true });
+        // envelope too, so a caller that only has the id (a task's saved
+        // sourceEmailId) can rebuild the whole row without it being in the
+        // current mailbox page — see openSourceEmail in app/page.tsx
+        const fromAddr = Array.isArray(parsed.from?.value)
+          ? parsed.from!.value[0]
+          : undefined;
+        const fromName = fromAddr?.name || fromAddr?.address || "Unknown";
         return {
           body: body.length ? body : ["(no text content)"],
           html: html || undefined,
           messageId: parsed.messageId,
           references: parsed.references,
+          from: {
+            name: fromName,
+            email: fromAddr?.address ?? "",
+            initials: initialsOf(fromName),
+            hue: hueOf(fromAddr?.address ?? fromName),
+          },
+          subject: parsed.subject || "(no subject)",
+          time: formatTime(parsed.date ?? undefined, tz),
         };
       } finally {
         lock.release();

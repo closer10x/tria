@@ -103,7 +103,7 @@ export async function resolveRole(
   }
 }
 
-function initialsOf(name: string): string {
+export function initialsOf(name: string): string {
   return (
     name
       .split(/\s+/)
@@ -114,7 +114,7 @@ function initialsOf(name: string): string {
   );
 }
 
-function hueOf(key: string): string {
+export function hueOf(key: string): string {
   let h = 0;
   for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) % 997;
   return HUES[h % HUES.length];

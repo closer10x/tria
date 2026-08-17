@@ -329,16 +329,20 @@ export default function TaskPane({
                                 {task.due}
                               </span>
                             )}
-                            {source && (
+                            {task.sourceEmailId && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  onOpenSource(source.id);
+                                  onOpenSource(task.sourceEmailId!);
                                 }}
-                                className="truncate transition-colors hover:text-(--color-clay)"
-                                title={`From: ${source.subject}`}
+                                className="inline-flex shrink-0 items-center gap-1 transition-colors hover:text-(--color-clay)"
+                                title={
+                                  source
+                                    ? `From: ${source.from.name} — ${source.subject}`
+                                    : "Open the email this task came from"
+                                }
                               >
-                                ✉ {source.from.name}
+                                ✉ View email
                               </button>
                             )}
                             {task.checklist.length > 0 && (
@@ -419,7 +423,7 @@ export default function TaskPane({
                                     className={`text-xs ${
                                       item.done
                                         ? "text-(--color-ink-faint) line-through"
-                                        : "text-(--color-ink-soft)"
+                                        : "text-(--color-ink)"
                                     }`}
                                   >
                                     {item.label}
