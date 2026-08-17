@@ -74,6 +74,25 @@ export function accountColor(accounts: string[], accountId: string): string {
 const accountLabel = (email: string, labels?: Record<string, string>) =>
   labels?.[email]?.trim() || email;
 
+/** Subject with the reply/forward prefixes peeled off, for grouping a thread:
+ *  "Re: Fwd: Sofi Lakes Fine" → "sofi lakes fine". */
+const threadSubject = (s: string) =>
+  s
+    .replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "")
+    .trim()
+    .toLowerCase();
+
+/** The messages of `email`'s conversation that are currently loaded — same
+ *  account, same normalized subject. Grouped from loaded mail only, so a reply
+ *  in a folder that hasn't been opened won't appear until it is. */
+function threadOf(email: Email, emails: Email[]): Email[] {
+  const key = threadSubject(email.subject);
+  if (!key) return [email];
+  return emails.filter(
+    (e) => e.accountId === email.accountId && threadSubject(e.subject) === key
+  );
+}
+
 /** Mock AI query understanding — later this becomes a real Claude call. */
 function aiSearch(
   query: string,
@@ -478,6 +497,9 @@ export default function MailPane({
     (e) => e.folder === "inbox" && !e.read && byAccount(e)
   ).length;
   const selected = emails.find((e) => e.id === selectedId) ?? null;
+  // the open message's conversation (loaded siblings), newest first
+  const thread = selected ? threadOf(selected, emails) : [];
+  const threadSiblings = thread.filter((e) => e.id !== selected?.id);
 
   const inFolder = emails.filter((e) => e.folder === folder && byAccount(e));
   const q = query.trim().toLowerCase();
@@ -1650,6 +1672,44 @@ export default function MailPane({
               )}
             </div>
           </div>
+
+          {threadSiblings.length > 0 && (
+            <div className="mb-4 space-y-1.5">
+              <p className="font-display text-[9px] font-normal uppercase tracking-[0.18em] text-(--color-ink-faint)">
+                Conversation · {thread.length} messages
+              </p>
+              {threadSiblings.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => onSelect(m.id)}
+                  className="flex w-full items-center gap-2.5 rounded-lg border hairline px-2.5 py-2 text-left transition-colors hover:border-(--color-clay)/50 hover:bg-(--color-paper)/60"
+                >
+                  <Avatar
+                    size="sm"
+                    initials={m.from.initials}
+                    hue={m.from.hue}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-[13px] font-medium text-(--color-ink)">
+                        {m.folder === "sent"
+                          ? `To: ${m.to ?? ""}`
+                          : m.from.name}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-(--color-ink-faint)">
+                        {m.time}
+                      </span>
+                    </div>
+                    {(m.preview || m.body[0]) && (
+                      <p className="truncate text-xs text-(--color-ink-faint)">
+                        {m.preview || m.body[0]}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="mb-4 flex items-start gap-3">
             <Avatar initials={selected.from.initials} hue={selected.from.hue} />
