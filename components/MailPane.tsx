@@ -1566,9 +1566,22 @@ export default function MailPane({
                 closeDetailState();
                 onBack();
               }}
-              className="-ml-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 text-[15px] font-semibold text-(--color-ink-soft) transition-colors hover:bg-(--color-paper) hover:text-(--color-ink) lg:min-h-0 lg:text-sm lg:text-(--color-ink-soft)"
+              aria-label="Back"
+              title="Back"
+              className="-ml-1 flex h-9 w-9 items-center justify-center rounded-lg text-(--color-ink-soft) transition-colors hover:bg-(--color-paper) hover:text-(--color-clay)"
             >
-              <span aria-hidden className="text-lg leading-none">←</span> Back
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-[18px] w-[18px]"
+              >
+                <path d="M15.5 10H4.5" />
+                <path d="M9 5l-5 5 5 5" />
+              </svg>
             </button>
             <div className="relative flex items-center gap-0.5">
               <IconBtn

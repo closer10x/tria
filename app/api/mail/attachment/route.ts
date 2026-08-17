@@ -3,6 +3,29 @@ import { COOKIE } from "@/lib/mail/store";
 import { resolveAccount } from "@/lib/mail/resolve";
 import { isRole, resolveRole, Role, withImap } from "@/lib/mail/imap";
 
+/** Filename-extension → MIME, for the common types a browser can render. Many
+ *  IMAP servers label parts "application/octet-stream", which the browser then
+ *  downloads instead of showing — so a .pdf never opened in the viewer. */
+const MIME_BY_EXT: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+  txt: "text/plain",
+};
+
+function resolveContentType(metaType: string | undefined, name: string): string {
+  const t = (metaType ?? "").toLowerCase();
+  // trust a specific type; override only the generic/empty ones
+  if (t && t !== "application/octet-stream" && t !== "application/binary") return t;
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return MIME_BY_EXT[ext] ?? metaType ?? "application/octet-stream";
+}
+
 /** Stream one attachment out of a message so the browser can display it. */
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams;
@@ -41,7 +64,7 @@ export async function GET(req: NextRequest) {
 
     return new NextResponse(new Uint8Array(file.body), {
       headers: {
-        "Content-Type": file.type,
+        "Content-Type": resolveContentType(file.type, file.name),
         // inline so images and PDFs render in the viewer rather than downloading
         "Content-Disposition": `inline; filename="${file.name.replace(/"/g, "")}"`,
         "Cache-Control": "private, max-age=300",
