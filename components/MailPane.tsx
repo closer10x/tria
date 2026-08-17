@@ -1387,10 +1387,8 @@ export default function MailPane({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span
-                        className={`truncate text-sm ${
-                          email.read
-                            ? "font-medium text-(--color-ink-soft)"
-                            : "font-semibold"
+                        className={`truncate text-sm text-(--color-ink) ${
+                          email.read ? "font-medium" : "font-semibold"
                         }`}
                       >
                         {email.folder === "sent"
@@ -1425,8 +1423,8 @@ export default function MailPane({
                       </span>
                     </div>
                     <p
-                      className={`truncate text-[13px] ${
-                        email.read ? "text-(--color-ink-soft)" : "font-medium"
+                      className={`truncate text-[13px] text-(--color-ink-soft) ${
+                        email.read ? "" : "font-medium text-(--color-ink)"
                       }`}
                     >
                       {email.subject}
