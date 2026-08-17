@@ -115,6 +115,7 @@ export default function TaskPane({
   onDropEmail,
   onTogglePin,
   onDelete,
+  onRename,
   onAddNote,
   onBrainDump,
 }: {
@@ -130,6 +131,8 @@ export default function TaskPane({
   onDropEmail: (emailId: string) => void;
   onTogglePin: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Rename a task; double-click the title to edit inline. */
+  onRename: (id: string, title: string) => void;
   /** Append a note to the task's log — the page stamps author and time. */
   onAddNote: (taskId: string, text: string) => void;
   /** Optional until the page wires it — the dump bar hides when absent. */
@@ -138,6 +141,18 @@ export default function TaskPane({
   const open = tasks.filter((t) => t.status !== "done").length;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [emailOver, setEmailOver] = useState(false);
+  // which task's title is being edited inline, and the working text
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+
+  const startEditing = (task: Task) => {
+    setEditingId(task.id);
+    setDraftTitle(task.title);
+  };
+  const commitEditing = () => {
+    if (editingId) onRename(editingId, draftTitle);
+    setEditingId(null);
+  };
   // Deleting a task is permanent and there is no Trash to fish it back out
   // of, so the button arms a confirm first — same two-step the thread rows
   // and saved accounts use. Mail is the exception: delete there moves the
@@ -240,14 +255,42 @@ export default function TaskPane({
                             {/* two lines, not one: the title is the only
                                 preview a task gets, so an AI-written one
                                 like "Send Camry photos and confirm the
-                                deductible" needs room to actually read */}
-                            <p
-                              className={`min-w-0 flex-1 line-clamp-2 font-display text-[15px] font-medium leading-snug ${
-                                task.status === "done" ? "line-through" : ""
-                              }`}
-                            >
-                              {task.title}
-                            </p>
+                                deductible" needs room to actually read.
+                                Double-click to rename in place. */}
+                            {editingId === task.id ? (
+                              <input
+                                autoFocus
+                                value={draftTitle}
+                                // select the whole title on open, so a
+                                // double-click then type replaces it cleanly
+                                onFocus={(e) => e.target.select()}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => setDraftTitle(e.target.value)}
+                                onBlur={commitEditing}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    commitEditing();
+                                  } else if (e.key === "Escape") {
+                                    setEditingId(null);
+                                  }
+                                }}
+                                className="min-w-0 flex-1 rounded-md border border-(--color-clay)/50 bg-white px-1.5 py-0.5 font-display text-[15px] font-medium leading-snug text-(--color-ink) outline-none"
+                              />
+                            ) : (
+                              <p
+                                onDoubleClick={(e) => {
+                                  e.stopPropagation();
+                                  startEditing(task);
+                                }}
+                                title="Double-click to rename"
+                                className={`min-w-0 flex-1 line-clamp-2 font-display text-[15px] font-medium leading-snug ${
+                                  task.status === "done" ? "line-through" : ""
+                                }`}
+                              >
+                                {task.title}
+                              </p>
+                            )}
                             <span
                               className={`flex shrink-0 items-center gap-1 transition-opacity group-hover:opacity-100 ${
                                 task.pinned ? "opacity-100" : "opacity-0"

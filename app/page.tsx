@@ -794,6 +794,14 @@ export default function Home() {
       );
     });
 
+  const renameTask = (id: string, title: string) => {
+    const clean = title.trim();
+    if (!clean) return; // an empty title would leave a blank row
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, title: clean } : t))
+    );
+  };
+
   const deleteTask = (id: string) => {
     const task = tasks.find((t) => t.id === id);
     setTasks((prev) => prev.filter((t) => t.id !== id));
@@ -1607,6 +1615,7 @@ export default function Home() {
           onDropEmail={dropEmailToTasks}
           onTogglePin={togglePinTask}
           onDelete={deleteTask}
+          onRename={renameTask}
           onAddNote={addTaskNote}
           onBrainDump={addBrainDumpTasks}
         />
