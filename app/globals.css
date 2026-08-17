@@ -264,19 +264,25 @@ html[data-theme="dark"] .glass {
   background: rgba(127, 127, 127, 0.22);
 }
 
-/* Rendered email bodies: contain whatever the sender's HTML tries to do to
-   the layout — no horizontal scroll from wide tables/long URLs, sane images. */
+/* Rendered email bodies. Senders build with fixed-width nested tables; the
+   old approach forced every table to width:100% + table-layout:fixed and
+   clamped every descendant to the pane, which crushed deeply-nested cells to
+   a sliver and shredded their text one letter per line. Instead, keep the
+   sender's own layout and let a genuinely-wide email pan inside its own box —
+   the way Gmail does on a phone — so it stays readable. Only the outer box
+   scrolls; the pane and page never move sideways. */
 .email-body {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  overflow-x: hidden;
+  /* wide content scrolls here rather than collapsing or escaping the pane */
+  overflow-x: auto;
+  /* break only a word that would otherwise overflow (a long URL), never mid-word
+     on normal text — that letter-per-line effect is exactly what we're fixing */
+  overflow-wrap: break-word;
 }
 .email-body p { margin: 0 0 0.75em; }
 .email-body p:last-child { margin-bottom: 0; }
 .email-body a { color: var(--color-clay); text-decoration: underline; text-underline-offset: 2px; }
 .email-body img { max-width: 100%; height: auto; }
-.email-body table { max-width: 100%; border-collapse: collapse; }
-.email-body td, .email-body th { word-break: break-word; }
+.email-body table { border-collapse: collapse; }
 .email-body blockquote {
   margin: 0.5em 0;
   padding-left: 0.75em;
@@ -288,27 +294,14 @@ html[data-theme="dark"] .glass {
 .email-body ul, .email-body ol { padding-left: 1.25em; margin: 0.5em 0; }
 .email-body font { color: inherit; }
 
-/* The reader never scrolls sideways: every descendant is clamped to the pane
-   width — the sender's fixed-width tables, images, long unbroken words in
-   subjects and bodies all wrap or shrink instead of pushing content off-screen. */
+/* The reader's own chrome — subject, addresses — breaks long unbroken tokens
+   so they can't push the pane sideways. The email body owns its width above,
+   so this must NOT clamp table widths or min-width (that was the crush). */
 .reader {
   overflow-wrap: anywhere;
-  word-break: break-word;
   min-width: 0;
 }
-.reader * {
-  max-width: 100% !important;
-  min-width: 0 !important;
-  box-sizing: border-box;
-}
-.reader .email-body table {
-  width: 100% !important;
-  table-layout: fixed;
-}
-.reader .email-body td,
-.reader .email-body th {
-  width: auto !important;
-}
-.reader .email-body img {
-  height: auto !important;
+.reader img {
+  max-width: 100%;
+  height: auto;
 }
