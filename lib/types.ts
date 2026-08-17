@@ -86,6 +86,9 @@ export type Settings = {
   name: string;
   email: string;
   signature: string;
+  /** Optional rich signature. When set, sent mail carries an HTML part whose
+   *  signature is this markup; `signature` stays the plain-text fallback. */
+  signatureHtml?: string;
   provider: Provider;
   accounts: SavedAccount[];
   imapHost: string;

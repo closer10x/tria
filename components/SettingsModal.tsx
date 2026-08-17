@@ -314,14 +314,42 @@ export default function SettingsModal({
                   onChange={(e) => onChange({ email: e.target.value })}
                 />
               </Field>
-              <Field label="Signature (appended to sent mail)">
+              <Field label="Signature (plain text, appended to sent mail)">
                 <textarea
-                  rows={3}
+                  rows={2}
                   className={`${inputCls} resize-none`}
                   value={settings.signature}
                   onChange={(e) => onChange({ signature: e.target.value })}
                 />
               </Field>
+              <Field label="HTML signature (optional — write HTML for a rich sign-off)">
+                <textarea
+                  rows={4}
+                  spellCheck={false}
+                  placeholder={
+                    '<strong>Jon Garcia</strong><br>\n<a href="https://sofilakes.com">Sofi Lakes</a> · (555) 010-0000'
+                  }
+                  className={`${inputCls} resize-none font-mono text-xs`}
+                  value={settings.signatureHtml ?? ""}
+                  onChange={(e) => onChange({ signatureHtml: e.target.value })}
+                />
+              </Field>
+              {settings.signatureHtml?.trim() && (
+                <div>
+                  <p className="mb-1.5 font-display text-[9px] font-normal uppercase tracking-[0.18em] text-(--color-ink-faint)">
+                    Preview
+                  </p>
+                  <div
+                    className="email-body rounded-lg border hairline bg-white p-3 text-sm text-(--color-ink)"
+                    // the user's own signature, shown back to them
+                    dangerouslySetInnerHTML={{ __html: settings.signatureHtml }}
+                  />
+                  <p className="mt-1.5 text-[11px] text-(--color-ink-faint)">
+                    Sent mail includes this as the HTML part; the plain-text
+                    signature above is the fallback for text-only clients.
+                  </p>
+                </div>
+              )}
             </>
           )}
 

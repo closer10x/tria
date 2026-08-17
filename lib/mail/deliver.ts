@@ -16,6 +16,9 @@ export type OutgoingMail = {
   bcc?: string;
   subject: string;
   text: string;
+  /** Optional HTML alternative. When present the message is multipart:
+   *  clients that render HTML show this, text-only clients get `text`. */
+  html?: string;
   inReplyTo?: string;
   references?: string[];
   /** any file type, base64-encoded */
@@ -33,6 +36,8 @@ export async function deliverMail(
     bcc: msg.bcc || undefined,
     subject: msg.subject || "(no subject)",
     text: msg.text,
+    // MailComposer emits multipart/alternative when both are set
+    html: msg.html || undefined,
     inReplyTo: msg.inReplyTo,
     references: msg.references,
     attachments: msg.attachments?.map((a) => ({

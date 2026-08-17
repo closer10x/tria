@@ -92,6 +92,15 @@ const nextId = (prefix: string) =>
 const nowTime = () =>
   new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
+/** The composed body as safe HTML: escape the text so it can't inject markup,
+ *  keep line breaks. Used to pair a typed message with an HTML signature. */
+const plainToHtml = (s: string) =>
+  s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+
 /** Placeholder shown while Claude reads the email; replaced when it answers. */
 function pendingTask(email: Email): Task {
   return {
@@ -1141,6 +1150,13 @@ export default function Home() {
     const text = settings.signature
       ? `${opts.body}\n\n${settings.signature}`
       : opts.body;
+    // With a rich signature, send an HTML part too: the typed body (escaped,
+    // newlines kept) followed by the signature markup. Text-only clients still
+    // get `text` above.
+    const htmlSig = settings.signatureHtml?.trim();
+    const html = htmlSig
+      ? `${plainToHtml(opts.body)}<br><br>${htmlSig}`
+      : undefined;
     const localId = nextId("e");
     const payload = {
       to: opts.to,
@@ -1148,6 +1164,7 @@ export default function Home() {
       bcc: opts.bcc,
       subject: opts.subject,
       text,
+      html,
       inReplyTo: opts.inReplyTo,
       references: opts.references,
       account: opts.account,

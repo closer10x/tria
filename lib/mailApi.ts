@@ -277,6 +277,7 @@ export async function apiSend(payload: {
   bcc?: string;
   subject: string;
   text: string;
+  html?: string;
   inReplyTo?: string;
   references?: string[];
   account?: string;
