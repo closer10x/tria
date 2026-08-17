@@ -234,9 +234,9 @@ export default function TaskPane({
                           onReorder(dragId, task.id);
                         }
                       }}
-                      onClick={() =>
-                        task.checklist.length > 0 && toggleExpand(task.id)
-                      }
+                      // every task expands, so notes are reachable even on a
+                      // task with no checklist (the note field lives inside)
+                      onClick={() => toggleExpand(task.id)}
                       className={`group cursor-pointer py-3.5 transition-colors ${
                         task.justCreated ? "rise-in" : ""
                       } ${
@@ -388,7 +388,7 @@ export default function TaskPane({
                                 ✉ View email
                               </button>
                             )}
-                            {task.checklist.length > 0 && (
+                            {task.checklist.length > 0 ? (
                               <span className="ml-auto inline-flex items-center gap-1.5">
                                 {doneCount}/{task.checklist.length}
                                 <span className="h-[3px] w-16 overflow-hidden rounded-full bg-(--color-line)">
@@ -404,6 +404,16 @@ export default function TaskPane({
                                 >
                                   ▾
                                 </span>
+                              </span>
+                            ) : (
+                              // a note-only task still opens; show the chevron
+                              // so that's discoverable
+                              <span
+                                className={`ml-auto text-[9px] text-(--color-ink-faint) transition-transform ${
+                                  isOpen ? "rotate-180" : ""
+                                }`}
+                              >
+                                ▾
                               </span>
                             )}
                           </div>
