@@ -74,6 +74,144 @@ export function accountColor(accounts: string[], accountId: string): string {
 const accountLabel = (email: string, labels?: Record<string, string>) =>
   labels?.[email]?.trim() || email;
 
+// avatar helpers for contact suggestions (kept local — the server's versions
+// live in lib/mail/imap.ts, which must not be pulled into the client bundle)
+const contactInitials = (s: string) =>
+  (s.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("") || "?").toUpperCase();
+
+const CONTACT_HUES = [
+  "bg-sky-100 text-sky-700",
+  "bg-violet-100 text-violet-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-amber-100 text-amber-700",
+  "bg-rose-100 text-rose-700",
+  "bg-indigo-100 text-indigo-700",
+];
+const contactHue = (key: string) => {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return CONTACT_HUES[h % CONTACT_HUES.length];
+};
+
+/**
+ * A recipient input with contact autocomplete, for the reply To/Cc/Bcc rows.
+ * The value is a comma-separated string; suggestions match the last token, so
+ * you can add several addresses in one field. Picking one replaces that token.
+ */
+function RecipientField({
+  label,
+  value,
+  onChange,
+  contacts,
+  placeholder,
+  trailing,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  contacts: Contact[];
+  placeholder?: string;
+  trailing?: React.ReactNode;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [index, setIndex] = useState(0);
+
+  // everything before the last comma is committed; the last token is what
+  // we're matching on
+  const lastComma = value.lastIndexOf(",");
+  const head = lastComma === -1 ? "" : value.slice(0, lastComma + 1);
+  const token = value.slice(lastComma + 1).trim().toLowerCase();
+  const taken = new Set(
+    value
+      .split(",")
+      .map((p) => p.trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  const suggestions =
+    focused && token
+      ? contacts
+          .filter(
+            (c) =>
+              !taken.has(c.email.toLowerCase()) &&
+              (c.email.toLowerCase().includes(token) ||
+                c.name.toLowerCase().includes(token))
+          )
+          .slice(0, 6)
+      : [];
+
+  const pick = (c: Contact) => {
+    onChange(`${head}${head ? " " : ""}${c.email}, `);
+    setIndex(0);
+  };
+
+  return (
+    <label className="relative flex items-center gap-2 text-xs">
+      <span className="w-8 shrink-0 font-display text-[9px] font-medium uppercase tracking-[0.16em] text-(--color-ink-faint)">
+        {label}
+      </span>
+      <input
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setIndex(0);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onKeyDown={(e) => {
+          if (!suggestions.length) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setIndex((i) => (i + 1) % suggestions.length);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+          } else if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            pick(suggestions[index]);
+          }
+        }}
+        placeholder={placeholder}
+        className="min-w-0 flex-1 bg-transparent py-1 outline-none placeholder:text-(--color-ink-faint)"
+      />
+      {trailing}
+      {suggestions.length > 0 && (
+        <div className="absolute left-8 top-full z-30 mt-1 w-[calc(100%-2rem)] overflow-hidden rounded-lg border hairline bg-white shadow-lg">
+          {suggestions.map((c, i) => (
+            <button
+              key={c.email}
+              // mousedown, not click: fires before the input's blur closes this
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(c);
+              }}
+              className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors ${
+                i === index ? "bg-(--color-clay-soft)" : "hover:bg-(--color-paper)"
+              }`}
+            >
+              <Avatar
+                size="sm"
+                initials={contactInitials(c.name || c.email)}
+                hue={contactHue(c.email)}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-medium text-(--color-ink)">
+                  {c.name || c.email}
+                </span>
+                {c.name && (
+                  <span className="block truncate text-[11px] text-(--color-ink-faint)">
+                    {c.email}
+                  </span>
+                )}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </label>
+  );
+}
+
 /** Subject with the reply/forward prefixes peeled off, for grouping a thread:
  *  "Re: Fwd: Sofi Lakes Fine" → "sofi lakes fine". */
 const threadSubject = (s: string) =>
@@ -424,12 +562,13 @@ export default function MailPane({
     }
   };
 
-  // fetch the contact ranking once per compose session (server caches the scan)
+  // fetch the contact ranking once (server caches the scan) — needed by both
+  // the composer and the reply To/Cc/Bcc autocomplete
   useEffect(() => {
-    if (composing && contacts.length === 0)
+    if ((composing || replyOpen) && contacts.length === 0)
       apiContacts().then(setContacts).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [composing]);
+  }, [composing, replyOpen]);
 
   // Gmail-style suggestions: match name or address, hide already-added people
   const suggestions = useMemo(() => {
@@ -1959,50 +2098,40 @@ export default function MailPane({
                 </div>
               )}
 
-              {/* recipients — editable, like a real client */}
+              {/* recipients — editable, with contact autocomplete */}
               <div className="mb-2 space-y-1 border-b hairline pb-2">
-                <label className="flex items-center gap-2 text-xs">
-                  <span className="w-8 shrink-0 font-display text-[9px] font-medium uppercase tracking-[0.16em] text-(--color-ink-faint)">
-                    To
-                  </span>
-                  <input
-                    value={replyTo}
-                    onChange={(e) => setReplyTo(e.target.value)}
-                    className="min-w-0 flex-1 bg-transparent py-1 outline-none"
-                  />
-                  {!replyCcOpen && (
-                    <button
-                      onClick={() => setReplyCcOpen(true)}
-                      className="shrink-0 font-display text-[9px] font-semibold uppercase tracking-[0.14em] text-(--color-ink-faint) hover:text-(--color-clay)"
-                    >
-                      Cc / Bcc
-                    </button>
-                  )}
-                </label>
+                <RecipientField
+                  label="To"
+                  value={replyTo}
+                  onChange={setReplyTo}
+                  contacts={contacts}
+                  trailing={
+                    !replyCcOpen ? (
+                      <button
+                        onClick={() => setReplyCcOpen(true)}
+                        className="shrink-0 font-display text-[9px] font-semibold uppercase tracking-[0.14em] text-(--color-ink-faint) hover:text-(--color-clay)"
+                      >
+                        Cc / Bcc
+                      </button>
+                    ) : undefined
+                  }
+                />
                 {replyCcOpen && (
                   <>
-                    <label className="flex items-center gap-2 text-xs">
-                      <span className="w-8 shrink-0 font-display text-[9px] font-medium uppercase tracking-[0.16em] text-(--color-ink-faint)">
-                        Cc
-                      </span>
-                      <input
-                        value={replyCc}
-                        onChange={(e) => setReplyCc(e.target.value)}
-                        placeholder="name@example.com, …"
-                        className="min-w-0 flex-1 bg-transparent py-1 outline-none placeholder:text-(--color-ink-faint)"
-                      />
-                    </label>
-                    <label className="flex items-center gap-2 text-xs">
-                      <span className="w-8 shrink-0 font-display text-[9px] font-medium uppercase tracking-[0.16em] text-(--color-ink-faint)">
-                        Bcc
-                      </span>
-                      <input
-                        value={replyBcc}
-                        onChange={(e) => setReplyBcc(e.target.value)}
-                        placeholder="hidden recipients"
-                        className="min-w-0 flex-1 bg-transparent py-1 outline-none placeholder:text-(--color-ink-faint)"
-                      />
-                    </label>
+                    <RecipientField
+                      label="Cc"
+                      value={replyCc}
+                      onChange={setReplyCc}
+                      contacts={contacts}
+                      placeholder="name@example.com, …"
+                    />
+                    <RecipientField
+                      label="Bcc"
+                      value={replyBcc}
+                      onChange={setReplyBcc}
+                      contacts={contacts}
+                      placeholder="hidden recipients"
+                    />
                   </>
                 )}
               </div>
