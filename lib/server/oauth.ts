@@ -69,7 +69,11 @@ export const providers: Record<OAuthProvider, ProviderConfig> = {
       "https://outlook.office.com/IMAP.AccessAsUser.All",
       "https://outlook.office.com/SMTP.Send",
     ].join(" "),
-    extraAuthParams: { response_mode: "query" },
+    // prompt=consent forces the consent screen on every sign-in. Without it,
+    // Microsoft silently reuses an earlier consent — so an account that first
+    // connected before Mail.Send was requested never gets asked for it, and
+    // sending keeps failing with AADSTS65001 no matter how often you reconnect.
+    extraAuthParams: { response_mode: "query", prompt: "consent" },
     clientId: process.env.MICROSOFT_OAUTH_CLIENT_ID,
     clientSecret: process.env.MICROSOFT_OAUTH_CLIENT_SECRET,
     mail: {
