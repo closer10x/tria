@@ -1923,14 +1923,15 @@ export default function MailPane({
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
                 placeholder={`Write to ${selected.from.name.split(" ")[0]}…`}
-                rows={4}
+                rows={9}
                 // desktop only: on a phone auto-focus yanks the keyboard up
                 // and covers the message you're replying to
                 autoFocus={
                   typeof window !== "undefined" &&
                   window.matchMedia("(min-width: 1024px)").matches
                 }
-                className="nice-scroll w-full resize-none bg-transparent text-[13px] leading-relaxed outline-none placeholder:text-(--color-ink-faint)"
+                // taller by default, and draggable for even more room
+                className="nice-scroll min-h-[10rem] w-full resize-y bg-transparent text-[13px] leading-relaxed outline-none placeholder:text-(--color-ink-faint)"
               />
               <div className="mt-2 flex items-center justify-between">
                 <button
