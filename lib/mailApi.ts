@@ -312,6 +312,25 @@ export async function apiContacts(): Promise<Contact[]> {
   }
 }
 
+/** Draft (or revise) a reply from the user's instruction and the message. */
+export async function apiDraftReply(payload: {
+  from?: string;
+  subject?: string;
+  message?: string;
+  instruction?: string;
+  current?: string;
+  me?: string;
+}): Promise<string> {
+  const res = await netFetch("/api/ai/draft", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { ok: boolean; draft?: string; error?: string };
+  if (!data.ok) throw new Error(data.error ?? "Couldn't draft that.");
+  return data.draft ?? "";
+}
+
 /** Queue a message to be sent at a future time (server-side, via cron). */
 export async function apiScheduleSend(payload: {
   to: string;

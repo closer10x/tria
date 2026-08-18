@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Email, Folder, OutgoingAttachment } from "@/lib/types";
-import { apiContacts, apiSearch, Contact } from "@/lib/mailApi";
+import { apiContacts, apiDraftReply, apiSearch, Contact } from "@/lib/mailApi";
 import MailDrawer from "./MailDrawer";
 import AskMail from "./AskMail";
 import {
@@ -177,14 +177,6 @@ function aiSearch(
   return { results, chips };
 }
 
-function draftReply(email: Email): string {
-  const first = email.from.name.split(" ")[0];
-  if (email.id === "e1")
-    return `Maya — reviewed everything. Going with variant B, the pricing copy is approved, and cleared logos are on the way by Thursday. Great work.`;
-  if (email.id === "e2")
-    return `Derek — net-45 works on our side starting next cycle. Send over the amended agreement and I'll sign today.`;
-  return `Hi ${first},\nThanks for the note — I'm on it and will circle back by tomorrow.`;
-}
 
 function IconBtn({
   title,
@@ -331,6 +323,38 @@ export default function MailPane({
   const [replyCc, setReplyCc] = useState("");
   const [replyBcc, setReplyBcc] = useState("");
   const [replyCcOpen, setReplyCcOpen] = useState(false);
+  // AI draft workflow: ask what to say, draft it, let the user revise
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const runAiDraft = async (instruction: string) => {
+    if (!selected || aiBusy) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const draft = await apiDraftReply({
+        from: `${selected.from.name} <${selected.from.email}>`,
+        subject: selected.subject,
+        message: selected.body.join("\n") || selected.preview,
+        instruction,
+        // when there's already a draft, this becomes a revise request
+        current: replyText.trim() || undefined,
+        me: userName,
+      });
+      if (draft) {
+        setReplyText(draft);
+        setAiPrompt("");
+      } else {
+        setAiError("Got an empty draft — try rephrasing.");
+      }
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "Couldn't draft that.");
+    } finally {
+      setAiBusy(false);
+    }
+  };
   const [replyAll, setReplyAll] = useState(false);
   const [composing, setComposing] = useState(false);
   // multi-select for bulk actions; anchor drives shift-click ranges
@@ -1864,12 +1888,76 @@ export default function MailPane({
                   </button>
                 </div>
                 <button
-                  onClick={() => setReplyText(draftReply(selected))}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-(--color-clay) hover:opacity-70"
+                  onClick={() => {
+                    setAiOpen((v) => !v);
+                    setAiError(null);
+                  }}
+                  className={`inline-flex items-center gap-1 text-[11px] font-semibold transition-colors ${
+                    aiOpen ? "text-(--color-ink)" : "text-(--color-clay) hover:opacity-70"
+                  }`}
                 >
                   <SparkIcon className="h-3 w-3" /> AI draft
                 </button>
               </div>
+
+              {aiOpen && (
+                <div className="mb-2 rounded-lg border border-(--color-clay)/30 bg-(--color-clay-soft)/40 p-2.5">
+                  <p className="mb-1.5 text-[11px] font-medium text-(--color-ink-soft)">
+                    {replyText.trim()
+                      ? "Not quite? Tell me what to change"
+                      : "What do you want to say?"}
+                  </p>
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      autoFocus
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && aiPrompt.trim())
+                          runAiDraft(aiPrompt.trim());
+                        if (e.key === "Escape") setAiOpen(false);
+                      }}
+                      rows={2}
+                      placeholder={
+                        replyText.trim()
+                          ? "make it warmer · shorter · add that I'll bring the docs"
+                          : "e.g. Friday works — ask if 11am is still good"
+                      }
+                      className="nice-scroll min-w-0 flex-1 resize-none rounded-md border hairline bg-white px-2.5 py-1.5 text-[13px] outline-none placeholder:text-(--color-ink-faint) focus:border-(--color-clay)/50"
+                    />
+                    <button
+                      onClick={() => runAiDraft(aiPrompt.trim() || "Write an appropriate reply.")}
+                      disabled={aiBusy}
+                      className="shrink-0 rounded-md bg-(--color-clay) px-3 py-2 text-[12px] font-semibold text-white transition-transform hover:scale-[1.02] disabled:opacity-50"
+                    >
+                      {aiBusy ? "…" : replyText.trim() ? "Revise" : "Draft"}
+                    </button>
+                  </div>
+                  {/* quick intents to skip typing for the common replies */}
+                  {!replyText.trim() && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {[
+                        "Yes, that works for me.",
+                        "Sorry, I can't make it.",
+                        "Thanks — I'll follow up shortly.",
+                        "Can you share more details?",
+                      ].map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => runAiDraft(q)}
+                          disabled={aiBusy}
+                          className="rounded-full border hairline bg-white px-2 py-0.5 text-[11px] text-(--color-ink-soft) transition-colors hover:border-(--color-clay)/50 hover:text-(--color-clay) disabled:opacity-50"
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {aiError && (
+                    <p className="mt-1.5 text-[11px] text-red-600">{aiError}</p>
+                  )}
+                </div>
+              )}
 
               {/* recipients — editable, like a real client */}
               <div className="mb-2 space-y-1 border-b hairline pb-2">
@@ -1938,6 +2026,8 @@ export default function MailPane({
                   onClick={() => {
                     setReplyOpen(false);
                     setReplyText("");
+                    setAiOpen(false);
+                    setAiPrompt("");
                   }}
                   className="text-xs font-medium text-(--color-ink-faint) hover:text-(--color-ink)"
                 >
