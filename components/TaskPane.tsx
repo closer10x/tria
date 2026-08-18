@@ -158,6 +158,8 @@ export default function TaskPane({
   // and saved accounts use. Mail is the exception: delete there moves the
   // message to Trash, which is already undoable.
   const confirmDelete = useArmedConfirm();
+  // completed tasks collapse to the bottom behind a Reveal toggle
+  const [showDone, setShowDone] = useState(false);
 
   const toggleExpand = (id: string) =>
     setExpanded((prev) => {
@@ -201,12 +203,30 @@ export default function TaskPane({
         {statusOrder.map((status) => {
           const group = tasks.filter((t) => t.status === status);
           if (group.length === 0) return null;
+          // completed tasks sit at the bottom, hidden until Reveal
+          const isDone = status === "done";
+          const collapsed = isDone && !showDone;
           return (
             <div key={status} className="mb-5">
-              <p className="mb-1 font-display text-[10px] font-normal uppercase tracking-[0.22em] text-(--color-ink-faint)">
-                {statusLabel[status]} · {group.length}
-              </p>
-              <div className="divide-y divide-(--color-line)">
+              {isDone ? (
+                <button
+                  onClick={() => setShowDone((v) => !v)}
+                  className="mb-1 flex items-center gap-1.5 font-display text-[10px] font-normal uppercase tracking-[0.22em] text-(--color-ink-faint) transition-colors hover:text-(--color-ink-soft)"
+                >
+                  {statusLabel[status]} · {group.length}
+                  <span className="tracking-normal text-(--color-clay)">
+                    {showDone ? "Hide" : "Reveal"}
+                  </span>
+                  <span className={`text-[9px] transition-transform ${showDone ? "rotate-180" : ""}`}>
+                    ▾
+                  </span>
+                </button>
+              ) : (
+                <p className="mb-1 font-display text-[10px] font-normal uppercase tracking-[0.22em] text-(--color-ink-faint)">
+                  {statusLabel[status]} · {group.length}
+                </p>
+              )}
+              <div className={`divide-y divide-(--color-line) ${collapsed ? "hidden" : ""}`}>
                 {group.map((task) => {
                   const source = task.sourceEmailId
                     ? emails.find((e) => e.id === task.sourceEmailId)
